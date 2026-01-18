@@ -1,0 +1,206 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import '@fontsource/outfit/400.css';
+@import '@fontsource/outfit/500.css';
+@import '@fontsource/outfit/600.css';
+@import '@fontsource/outfit/700.css';
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+
+/* Alsamos TV Design System - Premium Streaming Platform */
+
+@layer base {
+  :root {
+    /* Core backgrounds - Deep cinematic blacks */
+    --background: 222 47% 3%;
+    --foreground: 0 0% 98%;
+
+    /* Cards - Glassmorphism dark */
+    --card: 222 47% 6%;
+    --card-foreground: 0 0% 98%;
+
+    /* Popover - Elevated dark */
+    --popover: 222 47% 8%;
+    --popover-foreground: 0 0% 98%;
+
+    /* Primary - Premium Gold */
+    --primary: 38 92% 50%;
+    --primary-foreground: 222 47% 3%;
+
+    /* Secondary - Dark Gray */
+    --secondary: 222 20% 12%;
+    --secondary-foreground: 0 0% 90%;
+
+    /* Muted - Subtle grays */
+    --muted: 222 20% 15%;
+    --muted-foreground: 220 10% 60%;
+
+    /* Accent - Vibrant Red for actions */
+    --accent: 0 84% 60%;
+    --accent-foreground: 0 0% 100%;
+
+    /* Destructive */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Borders */
+    --border: 222 20% 15%;
+    --input: 222 20% 12%;
+    --ring: 38 92% 50%;
+
+    --radius: 0.75rem;
+
+    /* Custom tokens for Alsamos TV */
+    --glass: 222 47% 8% / 0.7;
+    --glass-border: 0 0% 100% / 0.1;
+    --glass-highlight: 0 0% 100% / 0.05;
+    
+    /* Gradients */
+    --gradient-gold: linear-gradient(135deg, hsl(38, 92%, 50%), hsl(45, 100%, 60%));
+    --gradient-dark: linear-gradient(180deg, hsl(222, 47%, 3%), hsl(222, 47%, 8%));
+    --gradient-card: linear-gradient(145deg, hsl(222, 47%, 8%), hsl(222, 47%, 5%));
+    --gradient-hero: linear-gradient(90deg, hsl(222, 47%, 3%) 0%, transparent 60%);
+    --gradient-hero-bottom: linear-gradient(180deg, transparent 0%, hsl(222, 47%, 3%) 100%);
+    
+    /* Shadows */
+    --shadow-glow: 0 0 60px hsl(38, 92%, 50%, 0.3);
+    --shadow-card: 0 8px 32px hsl(0, 0%, 0%, 0.4);
+    --shadow-elevated: 0 20px 60px hsl(0, 0%, 0%, 0.6);
+
+    /* Sidebar */
+    --sidebar-background: 222 47% 5%;
+    --sidebar-foreground: 0 0% 90%;
+    --sidebar-primary: 38 92% 50%;
+    --sidebar-primary-foreground: 222 47% 3%;
+    --sidebar-accent: 222 20% 12%;
+    --sidebar-accent-foreground: 0 0% 90%;
+    --sidebar-border: 222 20% 15%;
+    --sidebar-ring: 38 92% 50%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Outfit', system-ui, sans-serif;
+  }
+}
+
+/* Custom Scrollbar - Premium Dark */
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted)) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted));
+    border-radius: 3px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground));
+  }
+
+  /* Glass Effect */
+  .glass {
+    background: hsl(var(--glass));
+    backdrop-filter: blur(20px);
+    border: 1px solid hsl(var(--glass-border));
+  }
+
+  .glass-highlight {
+    background: linear-gradient(
+      135deg,
+      hsl(var(--glass-highlight)) 0%,
+      transparent 50%
+    );
+  }
+
+  /* Text Gradients */
+  .text-gradient-gold {
+    background: var(--gradient-gold);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Hover Card Effect */
+  .card-hover {
+    @apply transition-all duration-300 ease-out;
+  }
+
+  .card-hover:hover {
+    transform: scale(1.05) translateY(-4px);
+    box-shadow: var(--shadow-elevated);
+  }
+
+  /* Video Thumbnail Overlay */
+  .thumbnail-overlay {
+    background: linear-gradient(
+      180deg,
+      transparent 0%,
+      transparent 40%,
+      hsl(222, 47%, 3%, 0.9) 100%
+    );
+  }
+
+  /* Shimmer Effect */
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      hsl(var(--muted)) 0%,
+      hsl(var(--secondary)) 50%,
+      hsl(var(--muted)) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+
+  @keyframes shimmer {
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
+    }
+  }
+}
+
+/* Global Selection Color */
+::selection {
+  background: hsl(38, 92%, 50%, 0.3);
+  color: hsl(0, 0%, 100%);
+}

@@ -1,0 +1,79 @@
+import { useState } from 'react';
+import { motion } from 'framer-motion';
+import { Filter, Grid, LayoutList } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import Navbar from '@/components/Navbar';
+import { Footer } from '@/components/Footer';
+import { ContentCard } from '@/components/ContentCard';
+import { useContent } from '@/hooks/useContent';
+import { genres } from '@/data/genres';
+import { cn } from '@/lib/utils';
+
+const Series = () => {
+  const { series, loading } = useContent();
+  const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+
+  const filteredSeries = selectedGenre
+    ? series.filter((s) => s.genres.some((g) => g.toLowerCase() === selectedGenre.toLowerCase()))
+    : series;
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      <Navbar />
+
+      <div className="pt-24 pb-20 lg:pb-12">
+        <div className="container mx-auto px-4 md:px-6">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+            className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8"
+          >
+            <div>
+              <h1 className="font-display font-bold text-3xl md:text-4xl">TV Series</h1>
+              <p className="text-muted-foreground mt-1">{filteredSeries.length} series available</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <Button variant="glass" size="sm" className="gap-2"><Filter className="w-4 h-4" />Filters</Button>
+              <div className="flex items-center glass rounded-lg p-1">
+                <Button variant={viewMode === 'grid' ? 'secondary' : 'ghost'} size="iconSm" onClick={() => setViewMode('grid')}><Grid className="w-4 h-4" /></Button>
+                <Button variant={viewMode === 'list' ? 'secondary' : 'ghost'} size="iconSm" onClick={() => setViewMode('list')}><LayoutList className="w-4 h-4" /></Button>
+              </div>
+            </div>
+          </motion.div>
+
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.1 }} className="flex gap-2 overflow-x-auto scrollbar-hide pb-4 mb-8">
+            <Button variant={selectedGenre === null ? 'hero' : 'secondary'} size="sm" onClick={() => setSelectedGenre(null)} className="rounded-full flex-shrink-0">All</Button>
+            {genres.slice(0, 8).map((genre) => (
+              <Button key={genre.id} variant={selectedGenre === genre.name ? 'hero' : 'secondary'} size="sm" onClick={() => setSelectedGenre(genre.name)} className="rounded-full flex-shrink-0">{genre.name}</Button>
+            ))}
+          </motion.div>
+
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}
+            className={cn('grid gap-4', viewMode === 'grid' ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5' : 'grid-cols-1 md:grid-cols-2')}
+          >
+            {filteredSeries.map((s, index) => (
+              <ContentCard key={s.id} content={s} index={index} variant={viewMode === 'list' ? 'large' : 'default'} />
+            ))}
+          </motion.div>
+
+          {filteredSeries.length === 0 && (
+            <div className="text-center py-20">
+              <p className="text-muted-foreground">Hozircha serial yo'q. Tez orada qo'shiladi.</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <Footer />
+    </div>
+  );
+};
+
+export default Series;

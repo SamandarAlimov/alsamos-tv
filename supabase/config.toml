@@ -1,0 +1,13 @@
+project_id = "uzepuwtnnwrxokhaletd"
+
+[functions.check-subscription]
+verify_jwt = false
+
+[functions.create-checkout]
+verify_jwt = false
+
+[functions.customer-portal]
+verify_jwt = false
+
+[functions.generate-video-script]
+verify_jwt = false

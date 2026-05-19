@@ -68,7 +68,7 @@ const classicMovies: CatalogSeed[] = [
   {
     id: 'the-immigrant-1917',
     title: 'The Immigrant',
-    description: 'Chaplin muhojirlar kemasidan yangi hayot izlashgacha bo'lgan yo'lni nafis kulgi va iliq drama bilan tasvirlaydi.',
+    description: "Chaplin muhojirlar kemasidan yangi hayot izlashgacha bo'lgan yo'lni nafis kulgi va iliq drama bilan tasvirlaydi.",
     genres: ['Comedy', 'Drama', 'Classic'],
     year: 1917,
     rating: 'G',
@@ -182,7 +182,7 @@ const classicMovies: CatalogSeed[] = [
   {
     id: 'the-light-in-the-dark-1922',
     title: 'The Light in the Dark',
-    description: 'Clarence Brownning sirli dramasi. Yo'qolgan artefakt, vijdon va qutqarilish motivlari ixcham klassik filmda tutashadi.',
+    description: "Clarence Brownning sirli dramasi. Yo'qolgan artefakt, vijdon va qutqarilish motivlari ixcham klassik filmda tutashadi.",
     genres: ['Drama', 'Mystery', 'Classic'],
     year: 1922,
     rating: 'PG',
@@ -206,7 +206,7 @@ const classicMovies: CatalogSeed[] = [
   {
     id: 'the-squaw-man-1914',
     title: 'The Squaw Man',
-    description: 'Hollywoodda yaratilgan ilk to'liq metrajli filmlardan biri. Cecil B. DeMille western dramasi meros, sevgi va tanlov haqida.',
+    description: "Hollywoodda yaratilgan ilk to'liq metrajli filmlardan biri. Cecil B. DeMille western dramasi meros, sevgi va tanlov haqida.",
     genres: ['Western', 'Drama', 'Classic'],
     year: 1914,
     rating: 'PG',
@@ -218,7 +218,7 @@ const classicMovies: CatalogSeed[] = [
   {
     id: 'behind-the-screen-1916',
     title: 'Behind the Screen',
-    description: 'Kino studiyasi ichidagi tartibsizliklar, dekoratsiyalar va slapstick ritmi Chaplin ko'zi bilan.',
+    description: "Kino studiyasi ichidagi tartibsizliklar, dekoratsiyalar va slapstick ritmi Chaplin ko'zi bilan.",
     genres: ['Comedy', 'Classic', 'Cinema'],
     year: 1916,
     rating: 'G',
@@ -303,7 +303,7 @@ const classicMovies: CatalogSeed[] = [
   {
     id: 'work-1915',
     title: 'Work',
-    description: 'Ustaxonadan mijoz uyigacha bo'lgan yo'lda oddiy ish kuni Chaplincha tartibsizlikka aylanadi.',
+    description: "Ustaxonadan mijoz uyigacha bo'lgan yo'lda oddiy ish kuni Chaplincha tartibsizlikka aylanadi.",
     genres: ['Comedy', 'Classic', 'Silent'],
     year: 1915,
     rating: 'G',

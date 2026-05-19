@@ -77,6 +77,7 @@ export const HLSPlayer = forwardRef<HTMLVideoElement, HLSPlayerProps>(
     const recoveryAttemptsRef = useRef(0);
     const nativeErrorTimerRef = useRef<ReturnType<typeof setTimeout>>();
     const retryTimerRef = useRef<ReturnType<typeof setTimeout>>();
+    const startupWatchdogRef = useRef<ReturnType<typeof setTimeout>>();
     const [sourceIndex, setSourceIndex] = useState(0);
 
     const candidates = useMemo(() => {
@@ -117,6 +118,7 @@ export const HLSPlayer = forwardRef<HTMLVideoElement, HLSPlayerProps>(
       const tryNextSource = () => {
         if (nativeErrorTimerRef.current) clearTimeout(nativeErrorTimerRef.current);
         if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+        if (startupWatchdogRef.current) clearTimeout(startupWatchdogRef.current);
 
         if (sourceIndex < candidates.length - 1) {
           onRecovering?.();
@@ -136,13 +138,25 @@ export const HLSPlayer = forwardRef<HTMLVideoElement, HLSPlayerProps>(
       const handlePlaying = () => {
         if (nativeErrorTimerRef.current) clearTimeout(nativeErrorTimerRef.current);
         if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+        if (startupWatchdogRef.current) clearTimeout(startupWatchdogRef.current);
+      };
+      const handleReady = () => {
+        if (video.readyState >= 2 && startupWatchdogRef.current) {
+          clearTimeout(startupWatchdogRef.current);
+        }
       };
       video.addEventListener('error', handleVideoError);
       video.addEventListener('playing', handlePlaying);
+      video.addEventListener('loadeddata', handleReady);
+      video.addEventListener('canplay', handleReady);
 
       cleanupPlayers();
+      startupWatchdogRef.current = setTimeout(() => {
+        if (video.readyState < 2) tryNextSource();
+      }, 14000);
 
-      const isM3U8 = isHlsUrl(activeSrc);
+      const normalizedStreamType = (streamType || '').toLowerCase();
+      const isM3U8 = normalizedStreamType === 'hls' || isHlsUrl(activeSrc);
       const isMpegTs = isTransportStreamUrl(activeSrc, streamType);
       let cancelled = false;
 
@@ -222,8 +236,11 @@ export const HLSPlayer = forwardRef<HTMLVideoElement, HLSPlayerProps>(
         cancelled = true;
         if (nativeErrorTimerRef.current) clearTimeout(nativeErrorTimerRef.current);
         if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+        if (startupWatchdogRef.current) clearTimeout(startupWatchdogRef.current);
         video.removeEventListener('error', handleVideoError);
         video.removeEventListener('playing', handlePlaying);
+        video.removeEventListener('loadeddata', handleReady);
+        video.removeEventListener('canplay', handleReady);
         cleanupPlayers();
       };
     }, [activeSrc, autoPlay, candidates.length, onError, onRecovering, sourceIndex, streamType]);

@@ -9,6 +9,16 @@ function unique(values: Array<string | null | undefined>) {
   return Array.from(new Set(values.filter(Boolean) as string[]));
 }
 
+function getInspectableUrl(url: string) {
+  try {
+    const base = typeof window !== 'undefined' ? window.location.origin : 'https://alsamos.local';
+    const parsed = new URL(url, base);
+    return parsed.searchParams.get('url') || url;
+  } catch {
+    return url;
+  }
+}
+
 export function isMixedContentUrl(url: string | null | undefined) {
   if (!url) return false;
   try {
@@ -39,6 +49,19 @@ export function getPreferredStreamUrl(url: string | null | undefined) {
   return url;
 }
 
+export function getLocalStreamProxyUrl(url: string | null | undefined, referer?: string | null) {
+  if (!url) return null;
+
+  try {
+    new URL(url);
+    const params = new URLSearchParams({ url });
+    if (referer) params.set('referer', referer);
+    return `/api/stream?${params.toString()}`;
+  } catch {
+    return null;
+  }
+}
+
 export function getStreamCandidates(url: string | null | undefined) {
   if (!url) return [];
 
@@ -57,6 +80,8 @@ export function getStreamCandidates(url: string | null | undefined) {
   const proxyTargets = unique([url, upgraded]);
 
   return unique([
+    getLocalStreamProxyUrl(url),
+    upgraded ? getLocalStreamProxyUrl(upgraded) : null,
     preferred,
     upgraded,
     isMixedContentUrl(url) ? null : url,
@@ -66,10 +91,11 @@ export function getStreamCandidates(url: string | null | undefined) {
 
 export function isHlsUrl(url: string | null | undefined) {
   if (!url) return false;
+  const inspectableUrl = getInspectableUrl(url);
   try {
-    return new URL(url).pathname.toLowerCase().endsWith('.m3u8') || /\.m3u8(\?|$)/i.test(url);
+    return new URL(inspectableUrl).pathname.toLowerCase().endsWith('.m3u8') || /\.m3u8(\?|$)/i.test(inspectableUrl);
   } catch {
-    return /\.m3u8(\?|$)/i.test(url);
+    return /\.m3u8(\?|$)/i.test(inspectableUrl);
   }
 }
 
@@ -77,11 +103,12 @@ export function isTransportStreamUrl(url: string | null | undefined, streamType?
   if (!url) return false;
   const type = (streamType || '').toLowerCase();
   if (type === 'mpegts' || type === 'ts') return true;
+  const inspectableUrl = getInspectableUrl(url);
   try {
-    const path = new URL(url).pathname.toLowerCase();
+    const path = new URL(inspectableUrl).pathname.toLowerCase();
     return path.endsWith('.ts') || path.includes('/mpegts/') || path.includes('/ts/');
   } catch {
-    return /\.ts(\?|$)/i.test(url);
+    return /\.ts(\?|$)/i.test(inspectableUrl);
   }
 }
 

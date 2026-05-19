@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Channel } from './useChannels';
 import {
-  getPreferredStreamUrl,
   getStreamCandidates,
   getStreamHealth,
   isHlsUrl,
@@ -9,8 +8,9 @@ import {
 } from '@/utils/streams';
 
 const IPTV_INDEX_URL = 'https://iptv-org.github.io/iptv/index.m3u';
-const CACHE_KEY = 'iptv_channels_cache_v4_all';
+const CACHE_KEY = 'iptv_channels_cache_v5_all';
 const CACHE_TTL = 1000 * 60 * 60 * 6; // 6 hours
+const FETCH_TIMEOUT_MS = 15000;
 
 const CATEGORY_MAP: Record<string, string> = {
   news: 'News',
@@ -87,7 +87,7 @@ function parseM3U(text: string): Channel[] {
 
     const url = lines[j]?.trim();
     if (url && /^https?:\/\//i.test(url)) {
-      const streamUrl = getPreferredStreamUrl(url) || url;
+      const streamUrl = url;
       const streamType = getStreamType(streamUrl);
       const streamHealth = getStreamHealth(streamUrl, streamType);
       const playableCandidates = getStreamCandidates(streamUrl);
@@ -122,6 +122,17 @@ function parseM3U(text: string): Channel[] {
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+async function fetchWithTimeout(url: string, timeoutMs = FETCH_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, { cache: 'no-store', signal: controller.signal });
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
 async function fetchWithFallback(url: string): Promise<string> {
   const proxies = [
     (u: string) => u,
@@ -133,7 +144,7 @@ async function fetchWithFallback(url: string): Promise<string> {
 
   for (const proxy of proxies) {
     try {
-      const res = await fetch(proxy(url), { cache: 'no-store' });
+      const res = await fetchWithTimeout(proxy(url));
       if (!res.ok) continue;
       const text = await res.text();
       if (text.includes('#EXTM3U') && text.includes('#EXTINF')) return text;

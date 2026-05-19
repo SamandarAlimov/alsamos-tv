@@ -40,6 +40,7 @@ export function useChannels() {
   const [dbChannels, setDbChannels] = useState<Channel[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingGraceExpired, setLoadingGraceExpired] = useState(false);
   const { iptvChannels, iptvLoading } = useIPTVChannels();
   const { shamsChannels, shamsLoading } = useShamsChannels();
   const { uzChannels, uzLoading } = useUzbekChannels();
@@ -75,6 +76,11 @@ export function useChannels() {
       return a.name.localeCompare(b.name);
     });
   }, [dbChannels, iptvChannels, shamsChannels, uzChannels]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setLoadingGraceExpired(true), 6000);
+    return () => window.clearTimeout(timeout);
+  }, []);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -149,10 +155,12 @@ export function useChannels() {
     return channels.find(c => c.is_live) || channels[0];
   };
 
+  const sourcesLoading = loading || iptvLoading || shamsLoading || uzLoading;
+
   return {
     channels,
     schedules,
-    loading: loading || iptvLoading || shamsLoading || uzLoading,
+    loading: sourcesLoading && channels.length === 0 && !loadingGraceExpired,
     getCurrentProgram,
     getUpcomingPrograms,
     getChannelSchedule,

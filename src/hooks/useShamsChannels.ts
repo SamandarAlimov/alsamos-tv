@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import type { Channel } from './useChannels';
-import { getPreferredStreamUrl, getStreamCandidates, getStreamHealth, isHlsUrl, isTransportStreamUrl } from '@/utils/streams';
+import { getStreamCandidates, getStreamHealth, isHlsUrl, isTransportStreamUrl } from '@/utils/streams';
 
 const SHAMS_URLS = ['http://iptvshams.ru/ShamsTV.m3u8', 'https://iptvshams.ru/ShamsTV.m3u8'];
-const CACHE_KEY = 'shams_channels_cache_v4';
+const CACHE_KEY = 'shams_channels_cache_v5';
 const CACHE_TTL = 1000 * 60 * 60 * 6; // 6h
+const FETCH_TIMEOUT_MS = 10000;
 
 const GROUP_TO_CATEGORY: Record<string, string> = {
   'Россия': 'Russia',
@@ -42,7 +43,7 @@ function parseM3U(text: string): Channel[] {
       while (j < lines.length && (lines[j].trim() === '' || lines[j].trim().startsWith('#'))) j++;
       const url = lines[j]?.trim();
       if (url && /^https?:\/\//i.test(url)) {
-        const streamUrl = getPreferredStreamUrl(url) || url;
+        const streamUrl = url;
         const cat = GROUP_TO_CATEGORY[group] || group;
         const streamType = isHlsUrl(streamUrl) ? 'hls' : isTransportStreamUrl(streamUrl) ? 'mpegts' : 'mpegts';
         const streamHealth = getStreamHealth(streamUrl, streamType);
@@ -76,6 +77,17 @@ function parseM3U(text: string): Channel[] {
   return out;
 }
 
+async function fetchWithTimeout(url: string, timeoutMs = FETCH_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, { cache: 'no-store', signal: controller.signal });
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
 async function fetchWithFallback(urls: string[]): Promise<string> {
   const proxies = [
     (u: string) => u,
@@ -87,7 +99,7 @@ async function fetchWithFallback(urls: string[]): Promise<string> {
   for (const url of urls) {
     for (const p of proxies) {
       try {
-        const r = await fetch(p(url), { cache: 'no-store' });
+        const r = await fetchWithTimeout(p(url));
         if (r.ok) {
           const t = await r.text();
           if (t && t.includes('#EXTM3U')) return t;

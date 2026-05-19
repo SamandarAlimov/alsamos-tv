@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Channel } from './useChannels';
+import { getPreferredStreamUrl, getStreamHealth } from '@/utils/streams';
 
 interface IPTVChannel {
   id: string;
@@ -22,7 +23,7 @@ interface IPTVStream {
   quality?: string | null;
 }
 
-const CACHE_KEY = 'iptv_channels_cache_v2';
+const CACHE_KEY = 'iptv_channels_cache_v3';
 const CACHE_TTL = 1000 * 60 * 60 * 6; // 6 hours
 
 const CATEGORY_MAP: Record<string, string> = {
@@ -100,21 +101,24 @@ export function useIPTVChannels() {
           if (c.is_nsfw) continue;
           const stream = streamMap.get(c.id);
           if (!stream) continue;
+          const streamUrl = getPreferredStreamUrl(stream.url) || stream.url;
+          const streamHealth = getStreamHealth(streamUrl, 'hls');
           merged.push({
             id: `iptv:${c.id}`,
             name: c.name,
             description: c.network ? `${c.network} • ${c.country}` : c.country,
             logo_url: c.logo || null,
-            stream_url: stream.url,
+            stream_url: streamUrl,
             category: normalizeCategory(c.categories),
             is_live: true,
             current_program: 'Live Broadcast',
             viewer_count: 0,
             stream_type: 'hls',
             is_alsamos_channel: false,
-            embed_allowed: true,
+            embed_allowed: streamHealth !== 'mixed-content' && streamHealth !== 'unsupported',
             share_enabled: true,
             source: 'iptv-org',
+            stream_health: streamHealth,
           });
         }
 

@@ -64,6 +64,7 @@ declare global {
         element: HTMLElement,
         config: {
           videoId: string;
+          host?: string;
           playerVars: Record<string, string | number>;
           events: {
             onReady?: (event: YTPlayerEvent) => void;
@@ -140,11 +141,14 @@ export function YouTubePlayer({
         showinfo: 0,
         iv_load_policy: 3,
         disablekb: 1,
+        enablejsapi: 1,
         fs: 0,
         playsinline: 1,
         loop: isLive ? 1 : 0,
         cc_load_policy: 0,
+        color: 'white',
         origin: window.location.origin,
+        widget_referrer: window.location.origin,
       };
 
       if (playlistId) {
@@ -156,6 +160,7 @@ export function YouTubePlayer({
 
       playerRef.current = new window.YT.Player(playerContainerRef.current, {
         videoId: videoSource || '',
+        host: 'https://www.youtube-nocookie.com',
         playerVars,
         events: {
           onReady: (event) => {
@@ -322,6 +327,7 @@ export function YouTubePlayer({
 
   const wrapperClass = cn(
     "relative bg-black overflow-hidden group",
+    (fullControls || hideControls) && "yt-privacy-shell",
     fullControls ? "w-full h-full" : "aspect-video rounded-xl",
     className
   );
@@ -338,13 +344,17 @@ export function YouTubePlayer({
         ref={playerContainerRef}
         className={cn(
           "absolute inset-0 w-full h-full",
-          fullControls && "pointer-events-none"
+          (fullControls || hideControls) && "pointer-events-none"
         )}
       />
 
-      {/* Top mask to hide YT title that may appear briefly */}
-      {fullControls && (
-        <div className="absolute top-0 left-0 right-0 h-20 bg-gradient-to-b from-black/40 to-transparent pointer-events-none z-10" />
+      {/* Privacy masks hide transient YouTube title/cards while our controls stay on top. */}
+      {(fullControls || hideControls) && (
+        <>
+          <div className="absolute top-0 left-0 right-0 h-24 bg-gradient-to-b from-black/70 via-black/25 to-transparent pointer-events-none z-10" />
+          <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-black/70 via-black/20 to-transparent pointer-events-none z-10" />
+          <div className="absolute top-0 right-0 w-40 h-16 bg-gradient-to-l from-black/45 to-transparent pointer-events-none z-10" />
+        </>
       )}
 
       {isLive && (

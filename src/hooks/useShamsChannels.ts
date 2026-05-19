@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import type { Channel } from './useChannels';
+import { getPreferredStreamUrl, getStreamHealth } from '@/utils/streams';
 
 const SHAMS_URL = 'https://iptvshams.ru/ShamsTV.m3u8';
-const CACHE_KEY = 'shams_channels_cache_v1';
+const CACHE_KEY = 'shams_channels_cache_v3';
 const CACHE_TTL = 1000 * 60 * 60 * 6; // 6h
 
 const GROUP_TO_CATEGORY: Record<string, string> = {
@@ -41,7 +42,10 @@ function parseM3U(text: string): Channel[] {
       while (j < lines.length && (lines[j].trim() === '' || lines[j].trim().startsWith('#'))) j++;
       const url = lines[j]?.trim();
       if (url && /^https?:\/\//i.test(url)) {
+        const streamUrl = getPreferredStreamUrl(url) || url;
         const cat = GROUP_TO_CATEGORY[group] || group;
+        const streamType = /\.m3u8(\?|$)/i.test(streamUrl) ? 'hls' : 'mpegts';
+        const streamHealth = getStreamHealth(streamUrl, streamType);
         // skip the "subscribe" promo entry
         if (!/подпишись/i.test(name) && !/подпишись/i.test(group)) {
           out.push({
@@ -49,16 +53,17 @@ function parseM3U(text: string): Channel[] {
             name,
             description: `Shams TV • ${group}`,
             logo_url: logo,
-            stream_url: url,
+            stream_url: streamUrl,
             category: cat,
             is_live: true,
             current_program: 'Live Broadcast',
             viewer_count: 0,
-            stream_type: /\.m3u8(\?|$)/i.test(url) ? 'hls' : 'mpegts',
+            stream_type: streamType,
             is_alsamos_channel: false,
-            embed_allowed: true,
+            embed_allowed: streamHealth !== 'mixed-content' && streamHealth !== 'unsupported',
             share_enabled: true,
             source: 'shams',
+            stream_health: streamHealth,
           });
         }
       }

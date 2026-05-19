@@ -10,9 +10,7 @@ import { ContentCard } from '@/components/ContentCard';
 import { useContent } from '@/hooks/useContent';
 import { useChannels } from '@/hooks/useChannels';
 import { genres } from '@/data/genres';
-
-const normalize = (s: string) =>
-  s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/['`’ʻʼ]/g, '').replace(/\s+/g, ' ').trim();
+import { rankedSearch } from '@/utils/search';
 
 const Search = () => {
   const { search: searchContent, trending } = useContent();
@@ -23,11 +21,13 @@ const Search = () => {
   const filteredContent = query ? searchContent(query) : [];
   const filteredChannels = useMemo(() => {
     if (!query) return [];
-    const tokens = normalize(query).split(' ').filter(Boolean);
-    return channels.filter(c => {
-      const hay = normalize([c.name, c.description, c.category, c.current_program].filter(Boolean).join(' '));
-      return tokens.every(t => hay.includes(t));
-    }).slice(0, 24);
+    return rankedSearch(channels, query, (channel) => [
+      channel.name,
+      channel.description,
+      channel.category,
+      channel.current_program,
+      channel.source,
+    ]).slice(0, 24);
   }, [query, channels]);
 
   return (
@@ -37,7 +37,7 @@ const Search = () => {
       <div className="pt-24 pb-20 lg:pb-12">
         <div className="container mx-auto px-4 md:px-6">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-3xl mx-auto space-y-6">
-            <h1 className="font-display font-bold text-2xl sm:text-3xl md:text-4xl text-center">Search Alsamos TV</h1>
+            <h1 className="font-display font-bold text-2xl sm:text-3xl md:text-4xl text-center">Alsamos TV qidiruv</h1>
 
             <div className="relative">
               <div className="absolute left-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
@@ -45,7 +45,7 @@ const Search = () => {
               </div>
               <Input
                 type="text"
-                placeholder={isAISearch ? 'Ask AI: "Find movies with plot twists"' : 'Search movies, series, genres...'}
+                placeholder={isAISearch ? 'Masalan: "sarguzasht va sirli kinolar"' : 'Kino, serial, kanal yoki janr qidiring...'}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 className="h-12 sm:h-14 pl-12 pr-24 sm:pr-32 text-base sm:text-lg bg-secondary border-secondary rounded-xl focus:ring-2 focus:ring-primary"
@@ -67,7 +67,7 @@ const Search = () => {
             {isAISearch && (
               <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="flex items-center justify-center gap-2 text-sm text-primary">
                 <Sparkles className="w-4 h-4" />
-                AI-powered search enabled
+                Aqlli qidiruv yoqildi
               </motion.div>
             )}
           </motion.div>
@@ -104,7 +104,7 @@ const Search = () => {
                     {filteredChannels.map((ch) => (
                       <Link
                         key={ch.id}
-                        to={`/live-tv?channel=${encodeURIComponent(ch.id)}`}
+                        to={`/live?channel=${encodeURIComponent(ch.id)}`}
                         className="group glass-subtle rounded-xl p-3 hover:ring-1 hover:ring-primary/40 transition-all flex flex-col items-center text-center gap-2"
                       >
                         <div className="w-14 h-14 rounded-lg bg-black/40 flex items-center justify-center overflow-hidden">

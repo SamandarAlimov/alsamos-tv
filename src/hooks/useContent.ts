@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { fallbackContent } from '@/data/fallbackContent';
+import { rankedSearch } from '@/utils/search';
 
 export interface ContentItem {
   id: string;
@@ -64,16 +66,30 @@ export function useContent() {
 
   useEffect(() => {
     const fetchContent = async () => {
-      const { data, error } = await supabase
-        .from('content')
-        .select('*')
-        .order('created_at', { ascending: false });
+      try {
+        const { data, error } = await supabase
+          .from('content')
+          .select('*')
+          .order('created_at', { ascending: false });
 
-      if (data) {
-        setAllContent(data.map(mapDbToContent));
+        if (data) {
+          const mapped = data.map(mapDbToContent);
+          const existingIds = new Set(mapped.map((item) => item.id));
+          setAllContent([
+            ...mapped,
+            ...fallbackContent.filter((item) => !existingIds.has(item.id)),
+          ]);
+        }
+        if (error) {
+          console.error('Error fetching content:', error);
+          setAllContent(fallbackContent);
+        }
+      } catch (error) {
+        console.error('Error fetching content:', error);
+        setAllContent(fallbackContent);
+      } finally {
+        setLoading(false);
       }
-      if (error) console.error('Error fetching content:', error);
-      setLoading(false);
     };
 
     fetchContent();
@@ -88,12 +104,15 @@ export function useContent() {
   const getById = (id: string) => allContent.find(c => c.id === id) || null;
 
   const search = (query: string) => {
-    const q = query.toLowerCase();
-    return allContent.filter(
-      c => c.title.toLowerCase().includes(q) ||
-        c.genres.some(g => g.toLowerCase().includes(q)) ||
-        c.description.toLowerCase().includes(q)
-    );
+    return rankedSearch(allContent, query, (c) => [
+      c.title,
+      c.description,
+      c.director,
+      c.rating,
+      c.year?.toString(),
+      c.genres.join(' '),
+      c.cast?.join(' '),
+    ]);
   };
 
   return {

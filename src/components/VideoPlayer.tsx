@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { cn } from '@/lib/utils';
 import { Link } from 'react-router-dom';
+import Hls from 'hls.js';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -57,6 +58,7 @@ const playbackSpeeds = [0.5, 0.75, 1, 1.25, 1.5, 2];
 export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressUpdate }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const hlsRef = useRef<Hls | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -69,8 +71,48 @@ export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressU
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [bufferedProgress, setBufferedProgress] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
+  const [playbackError, setPlaybackError] = useState(false);
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
   const progressUpdateRef = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !src) return;
+
+    setPlaybackError(false);
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+
+    const isHls = /\.m3u8(\?|$)/i.test(src);
+    if (isHls && Hls.isSupported()) {
+      const hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: true,
+        backBufferLength: 60,
+        maxBufferLength: 60,
+      });
+      hlsRef.current = hls;
+      hls.loadSource(src);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (data.fatal) {
+          setPlaybackError(true);
+          setIsBuffering(false);
+        }
+      });
+    } else {
+      video.src = src;
+    }
+
+    return () => {
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
+    };
+  }, [src]);
 
   // Update buffered progress
   const updateBuffered = useCallback(() => {
@@ -93,14 +135,16 @@ export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressU
     
     const handleLoadedMetadata = () => setDuration(video.duration);
     const handleWaiting = () => setIsBuffering(true);
-    const handlePlaying = () => setIsBuffering(false);
+    const handlePlaying = () => { setIsBuffering(false); setPlaybackError(false); };
     const handleProgress = () => updateBuffered();
+    const handleError = () => { setPlaybackError(true); setIsBuffering(false); };
 
     video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
     video.addEventListener('waiting', handleWaiting);
     video.addEventListener('playing', handlePlaying);
     video.addEventListener('progress', handleProgress);
+    video.addEventListener('error', handleError);
 
     return () => {
       video.removeEventListener('timeupdate', handleTimeUpdate);
@@ -108,6 +152,7 @@ export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressU
       video.removeEventListener('waiting', handleWaiting);
       video.removeEventListener('playing', handlePlaying);
       video.removeEventListener('progress', handleProgress);
+      video.removeEventListener('error', handleError);
     };
   }, [updateBuffered]);
 
@@ -238,11 +283,11 @@ export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressU
       className="relative w-full h-full bg-black overflow-hidden group"
       onMouseMove={handleMouseMove}
       onMouseLeave={() => isPlaying && setShowControls(false)}
+      onDoubleClick={toggleFullscreen}
     >
       {/* Video */}
       <video
         ref={videoRef}
-        src={src}
         poster={poster}
         className="w-full h-full object-contain"
         onClick={togglePlay}
@@ -259,6 +304,26 @@ export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressU
             className="absolute inset-0 flex items-center justify-center bg-black/50"
           >
             <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Playback Error */}
+      <AnimatePresence>
+        {playbackError && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 flex items-center justify-center bg-black/80 px-4"
+          >
+            <div className="max-w-md text-center glass-strong rounded-2xl p-6">
+              <p className="font-display text-lg font-semibold text-white">Video yuklanmadi</p>
+              <p className="text-sm text-white/65 mt-2">Manba vaqtincha ishlamayapti yoki brauzer bu formatni qo'llab-quvvatlamaydi.</p>
+              <Button variant="hero" className="mt-4" onClick={() => window.location.reload()}>
+                Qayta urinish
+              </Button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

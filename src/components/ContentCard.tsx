@@ -26,14 +26,14 @@ export function ContentCard({ content, index = 0, variant = 'default' }: Content
     default: 'aspect-video',
     large: 'aspect-video',
     portrait: 'aspect-[2/3]',
-    grid: 'aspect-video',
+    grid: 'aspect-[2/3]',
   };
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, delay: index * 0.1 }}
+      transition={{ duration: 0.35, delay: Math.min(index * 0.025, 0.25) }}
       className={cn(variant !== 'grid' && 'flex-shrink-0', cardSizes[variant])}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -50,21 +50,25 @@ export function ContentCard({ content, index = 0, variant = 'default' }: Content
           <img
             src={content.thumbnail}
             alt={content.title}
-            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+            loading="lazy"
+            onError={(event) => {
+              event.currentTarget.src = '/placeholder.svg';
+            }}
+            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
           />
           
           {/* Gradient Overlay */}
           <div className="absolute inset-0 thumbnail-overlay opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
           
           {/* Badges */}
-          <div className="absolute top-3 left-3 flex items-center gap-2">
+          <div className={cn("absolute top-3 left-3 right-3 flex items-center gap-2 flex-wrap", content.aiScore && "pr-14")}>
             {content.isOriginal && (
-              <span className="px-2 py-0.5 text-[10px] font-display font-semibold bg-primary text-primary-foreground rounded uppercase tracking-wider">
+              <span className="px-2 py-0.5 text-[10px] font-display font-semibold bg-primary text-primary-foreground rounded uppercase tracking-wider shadow-lg shadow-primary/20">
                 Original
               </span>
             )}
             {content.isNew && (
-              <span className="px-2 py-0.5 text-[10px] font-display font-semibold bg-accent text-accent-foreground rounded uppercase tracking-wider">
+              <span className="px-2 py-0.5 text-[10px] font-display font-semibold bg-accent text-accent-foreground rounded uppercase tracking-wider shadow-lg shadow-accent/20">
                 New
               </span>
             )}
@@ -83,7 +87,10 @@ export function ContentCard({ content, index = 0, variant = 'default' }: Content
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: isHovered ? 1 : 0, y: isHovered ? 0 : 20 }}
             transition={{ duration: 0.2 }}
-            className="absolute bottom-0 left-0 right-0 p-4 flex items-center justify-between"
+            className={cn(
+              "absolute bottom-0 left-0 right-0 p-3 sm:p-4 flex items-center justify-between",
+              isHovered ? "pointer-events-auto" : "pointer-events-none"
+            )}
           >
             <div className="flex items-center gap-2">
               <Link to={`/watch/${content.id}`}>
@@ -108,10 +115,10 @@ export function ContentCard({ content, index = 0, variant = 'default' }: Content
           <h3 className="font-display font-semibold text-sm line-clamp-1 group-hover:text-primary transition-colors">
             {content.title}
           </h3>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground min-w-0">
             <span>{content.year}</span>
             <span>•</span>
-            <span>{content.duration}</span>
+            <span className="truncate">{content.duration || content.rating}</span>
             {content.type === 'series' && (
               <>
                 <span>•</span>

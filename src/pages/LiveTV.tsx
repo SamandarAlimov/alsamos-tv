@@ -3,9 +3,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Radio, Users, Play, Pause, Clock, Grid3X3, Tv,
   Minimize2, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
-  Volume2, VolumeX, Maximize, PictureInPicture2, List, LayoutGrid,
-  Signal, Wifi, Share2, Heart, Info, X, Search, MessageCircle,
-  Sparkles, Zap
+  Volume2, VolumeX, Maximize, PictureInPicture2, LayoutGrid,
+  Signal, Wifi, Share2, Heart, Info, X, Search,
+  ShieldCheck, AlertTriangle, RotateCcw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Navbar from '@/components/Navbar';
@@ -17,9 +17,8 @@ import { HLSPlayer } from '@/components/HLSPlayer';
 import { YouTubePlayer, YTPlayer } from '@/components/YouTubePlayer';
 import { Skeleton } from '@/components/ui/skeleton';
 import { format } from 'date-fns';
-import { Link } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Slider } from '@/components/ui/slider';
 import { Input } from '@/components/ui/input';
@@ -30,8 +29,22 @@ import { CategoryFilter } from '@/components/live/CategoryFilter';
 import { VirtualChannelList } from '@/components/live/VirtualChannelList';
 import { SourceFilter, ChannelSource } from '@/components/live/SourceFilter';
 import { getSyncedPlaybackPosition, getSyncedPlaybackPositionWithOffset } from '@/utils/playlistSync';
+import { rankedSearch } from '@/utils/search';
+import { getStreamHealth } from '@/utils/streams';
+
+function isBrowserPlayableChannel(channel: Channel | null | undefined, failedIds = new Set<string>(), strict = false) {
+  if (!channel || failedIds.has(channel.id)) return false;
+  if (channel.youtube_video_id || channel.stream_type === 'youtube_playlist' || channel.stream_type === 'youtube_live') return true;
+  if (!channel.stream_url || channel.embed_allowed === false) return false;
+  const health = channel.stream_health || getStreamHealth(channel.stream_url, channel.stream_type);
+  if (strict) return health !== 'mixed-content' && health !== 'unsupported';
+  return health !== 'mixed-content' && health !== 'unsupported';
+}
 
 const LiveTV = () => {
+  const { id: routeChannelId } = useParams<{ id?: string }>();
+  const [searchParams] = useSearchParams();
+  const requestedChannelId = searchParams.get('channel') || routeChannelId;
   const { channels, loading, getCurrentProgram, getChannelSchedule } = useChannels();
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
   const [isPlaying, setIsPlaying] = useState(true);
@@ -41,12 +54,12 @@ const LiveTV = () => {
   const [miniPlayerChannel, setMiniPlayerChannel] = useState<Channel | null>(null);
   const [isTheaterMode, setIsTheaterMode] = useState(false);
   const [showControls, setShowControls] = useState(true);
-  const [showChannelList, setShowChannelList] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
-  const [showChat, setShowChat] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedSource, setSelectedSource] = useState<ChannelSource>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [showPlayableOnly, setShowPlayableOnly] = useState(true);
+  const [failedChannelIds, setFailedChannelIds] = useState<Set<string>>(new Set());
   const [mobileTab, setMobileTab] = useState<'channels' | 'schedule'>('channels');
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -56,53 +69,74 @@ const LiveTV = () => {
   const [dvrOffset, setDvrOffset] = useState(0);
   const [isDvrLive, setIsDvrLive] = useState(true);
 
-  const sourceCounts = {
+  const sourceCounts = useMemo(() => ({
     all: channels.length,
     alsamos: channels.filter(c => (c.source ?? 'alsamos') === 'alsamos').length,
     uz: channels.filter(c => c.source === 'uz').length,
     shams: channels.filter(c => c.source === 'shams').length,
     'iptv-org': channels.filter(c => c.source === 'iptv-org').length,
-  };
+  }), [channels]);
 
-  const sourceFiltered = selectedSource === 'all'
-    ? channels
-    : channels.filter(c => (c.source ?? 'alsamos') === selectedSource);
+  const sourceFiltered = useMemo(() => (
+    selectedSource === 'all'
+      ? channels
+      : channels.filter(c => (c.source ?? 'alsamos') === selectedSource)
+  ), [channels, selectedSource]);
 
-  const categories = ['All', ...Array.from(new Set(sourceFiltered.map(c => c.category).filter(Boolean) as string[]))];
+  const playableFiltered = useMemo(() => (
+    showPlayableOnly
+      ? sourceFiltered.filter((channel) => isBrowserPlayableChannel(channel, failedChannelIds, true))
+      : sourceFiltered
+  ), [failedChannelIds, showPlayableOnly, sourceFiltered]);
 
-  // Diacritic + case-insensitive normalization for robust search (matches "ozbek" → "O'zbek")
-  const normalize = (s: string) =>
-    s.toLowerCase()
-      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-      .replace(/['`’ʻʼ]/g, '')
-      .replace(/[^a-z0-9\s]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
+  const categories = useMemo(() => (
+    ['All', ...Array.from(new Set(playableFiltered.map(c => c.category).filter(Boolean) as string[]))]
+  ), [playableFiltered]);
 
   const filteredChannels = useMemo(() => {
-    const q = normalize(searchQuery);
-    const tokens = q ? q.split(' ').filter(Boolean) : [];
-    return sourceFiltered.filter(channel => {
-      if (selectedCategory !== 'All' && channel.category !== selectedCategory) return false;
-      if (tokens.length === 0) return true;
-      const haystack = [channel.name, channel.description, channel.category, channel.current_program]
-        .filter(Boolean).map(v => normalize(String(v))).join(' ');
-      return tokens.every(token => haystack.includes(token));
-    });
-  }, [sourceFiltered, selectedCategory, searchQuery]);
+    const categoryFiltered = playableFiltered.filter(channel =>
+      selectedCategory === 'All' || channel.category === selectedCategory
+    );
+
+    return searchQuery.trim()
+      ? rankedSearch(categoryFiltered, searchQuery, (channel) => [
+          channel.name,
+          channel.description,
+          channel.category,
+          channel.current_program,
+          channel.source,
+        ])
+      : categoryFiltered;
+  }, [playableFiltered, selectedCategory, searchQuery]);
 
   // Reset key triggers VirtualChannelList to reset visibleCount/page when filters change
-  const resetKey = `${selectedSource}|${selectedCategory}|${searchQuery}`;
+  const resetKey = `${selectedSource}|${selectedCategory}|${searchQuery}|${showPlayableOnly}`;
 
   useEffect(() => {
-    if (channels.length > 0 && !selectedChannel) {
-      setSelectedChannel(channels[0]);
+    if (channels.length === 0) return;
+    const requested = requestedChannelId
+      ? channels.find((channel) => channel.id === requestedChannelId)
+      : null;
+    const fallback = channels.find((channel) => isBrowserPlayableChannel(channel, failedChannelIds, true)) || channels[0];
+
+    if (requested) {
+      setSelectedChannel((current) => current?.id === requested.id ? current : requested);
+      return;
     }
-  }, [channels, selectedChannel]);
+
+    setSelectedChannel((current) => {
+      if (current && channels.some((channel) => channel.id === current.id)) return current;
+      return fallback;
+    });
+  }, [channels, failedChannelIds, requestedChannelId]);
+
+  useEffect(() => {
+    setSelectedCategory('All');
+  }, [selectedSource, showPlayableOnly]);
 
   const currentProgram = selectedChannel ? getCurrentProgram(selectedChannel.id) : undefined;
   const channelSchedule = selectedChannel ? getChannelSchedule(selectedChannel.id) : [];
-  const currentIndex = selectedChannel ? channels.findIndex(c => c.id === selectedChannel.id) : 0;
+  const currentIndex = selectedChannel ? Math.max(0, channels.findIndex(c => c.id === selectedChannel.id)) : 0;
 
   const formatViewers = (num: number) => {
     if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
@@ -137,6 +171,28 @@ const LiveTV = () => {
 
   const goToPrevChannel = () => setSelectedChannel(channels[currentIndex > 0 ? currentIndex - 1 : channels.length - 1]);
   const goToNextChannel = () => setSelectedChannel(channels[currentIndex < channels.length - 1 ? currentIndex + 1 : 0]);
+
+  const findNextPlayableChannel = useCallback((from: Channel | null, failedIds: Set<string>) => {
+    if (channels.length === 0) return null;
+    const startIndex = from ? Math.max(0, channels.findIndex((channel) => channel.id === from.id)) : 0;
+    for (let offset = 1; offset <= channels.length; offset += 1) {
+      const candidate = channels[(startIndex + offset) % channels.length];
+      if (isBrowserPlayableChannel(candidate, failedIds, true)) return candidate;
+    }
+    return null;
+  }, [channels]);
+
+  const handleStreamError = useCallback(() => {
+    if (!selectedChannel) return;
+    const nextFailed = new Set(failedChannelIds);
+    nextFailed.add(selectedChannel.id);
+    setFailedChannelIds(nextFailed);
+
+    const nextChannel = findNextPlayableChannel(selectedChannel, nextFailed);
+    if (nextChannel) {
+      setSelectedChannel(nextChannel);
+    }
+  }, [failedChannelIds, findNextPlayableChannel, selectedChannel]);
 
   const enterPiP = async () => {
     if (videoRef.current && document.pictureInPictureEnabled) {
@@ -205,7 +261,6 @@ const LiveTV = () => {
 
   const handleChannelSelect = (channel: Channel) => {
     setSelectedChannel(channel);
-    setShowChannelList(false);
     if (showMiniPlayer && miniPlayerChannel?.id === channel.id) { setShowMiniPlayer(false); setMiniPlayerChannel(null); }
   };
 
@@ -243,6 +298,11 @@ const LiveTV = () => {
     ((Date.now() - new Date(currentProgram.start_time).getTime()) /
     (new Date(currentProgram.end_time).getTime() - new Date(currentProgram.start_time).getTime())) * 100
   )) : 0;
+  const selectedHealth = selectedChannel?.stream_url
+    ? selectedChannel.stream_health || getStreamHealth(selectedChannel.stream_url, selectedChannel.stream_type)
+    : 'ready';
+  const canPlaySelected = isBrowserPlayableChannel(selectedChannel, failedChannelIds, false);
+  const playableCount = channels.filter((channel) => isBrowserPlayableChannel(channel, failedChannelIds, true)).length;
 
   if (loading) {
     return (
@@ -289,7 +349,7 @@ const LiveTV = () => {
               onTouchStart={() => { setShowControls(true); if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current); controlsTimeoutRef.current = setTimeout(() => { if (isPlaying) setShowControls(false); }, 4000); }}
             >
               {/* Video Source */}
-              {selectedChannel?.youtube_video_id || selectedChannel?.stream_type === 'youtube_playlist' ? (
+              {canPlaySelected && (selectedChannel?.youtube_video_id || selectedChannel?.stream_type === 'youtube_playlist') ? (
                 <YouTubePlayer
                   key={selectedChannel.id}
                   videoId={selectedChannel.stream_type !== 'youtube_playlist' ? selectedChannel.youtube_video_id : undefined}
@@ -305,7 +365,7 @@ const LiveTV = () => {
                   onMuteChange={(muted) => setIsMuted(muted)}
                   className="w-full h-full"
                 />
-              ) : selectedChannel?.stream_url ? (
+              ) : canPlaySelected && selectedChannel?.stream_url ? (
                 <HLSPlayer
                   ref={videoRef}
                   key={selectedChannel.id}
@@ -313,12 +373,45 @@ const LiveTV = () => {
                   muted={isMuted}
                   autoPlay
                   className="w-full h-full object-contain"
-                  onError={() => toast.error('Stream yuklab bo\'lmadi')}
+                  onError={handleStreamError}
                 />
+              ) : selectedChannel ? (
+                <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-secondary to-background px-4">
+                  <div className="max-w-md text-center">
+                    <div className="w-20 h-20 md:w-24 md:h-24 mx-auto mb-4 md:mb-6 rounded-full glass flex items-center justify-center">
+                      <AlertTriangle className="w-10 h-10 md:w-12 md:h-12 text-yellow-500" />
+                    </div>
+                    <h3 className="font-display text-lg md:text-xl font-semibold mb-1 md:mb-2 text-white">
+                      Signal tiklanmoqda
+                    </h3>
+                    <p className="text-white/65 text-xs md:text-sm">
+                      {selectedHealth === 'mixed-content'
+                        ? 'Manba xavfsiz HTTPS kanaliga moslashtirilmoqda.'
+                        : "Player avtomatik qayta ulanmoqda. Zarur bo'lsa keyingi stabil kanal tanlanadi."}
+                    </p>
+                    <div className="mt-5 flex flex-wrap justify-center gap-2">
+                      <Button
+                        variant="hero"
+                        size="sm"
+                        onClick={() => {
+                          const next = findNextPlayableChannel(selectedChannel, failedChannelIds);
+                          if (next) setSelectedChannel(next);
+                        }}
+                        className="gap-2"
+                      >
+                        <RotateCcw className="w-4 h-4" />
+                        Keyingi ishlaydigan kanal
+                      </Button>
+                      <Button variant="glass" size="sm" onClick={() => setShowPlayableOnly(false)}>
+                        Barchasini ko'rsatish
+                      </Button>
+                    </div>
+                  </div>
+                </div>
               ) : (
                 <div className="hidden" />
               )}
-              {!selectedChannel?.stream_url && !selectedChannel?.youtube_video_id && selectedChannel?.stream_type !== 'youtube_playlist' && (
+              {!selectedChannel && (
                 <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-secondary to-background">
                   <div className="text-center">
                     <div className="w-20 h-20 md:w-24 md:h-24 mx-auto mb-4 md:mb-6 rounded-full glass flex items-center justify-center">
@@ -613,6 +706,20 @@ const LiveTV = () => {
                         />
                       </div>
                       <SourceFilter selected={selectedSource} onSelect={setSelectedSource} counts={sourceCounts} />
+                      <button
+                        type="button"
+                        onClick={() => setShowPlayableOnly((value) => !value)}
+                        className={cn(
+                          "w-full flex items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold transition-all",
+                          showPlayableOnly ? "bg-primary/15 text-primary ring-1 ring-primary/20" : "glass-subtle text-muted-foreground"
+                        )}
+                      >
+                        <span className="flex items-center gap-2">
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                          Faqat ishlaydigan kanallar
+                        </span>
+                        <span className="font-mono text-[10px]">{playableCount}/{channels.length}</span>
+                      </button>
                       <CategoryFilter categories={categories} selected={selectedCategory} onSelect={setSelectedCategory} />
                     </div>
 
@@ -741,6 +848,20 @@ const LiveTV = () => {
                   className="pl-9 h-9 glass-subtle border-white/5 text-sm" />
               </div>
               <SourceFilter selected={selectedSource} onSelect={setSelectedSource} counts={sourceCounts} />
+              <button
+                type="button"
+                onClick={() => setShowPlayableOnly((value) => !value)}
+                className={cn(
+                  "flex items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold transition-all",
+                  showPlayableOnly ? "bg-primary/15 text-primary ring-1 ring-primary/20" : "glass-subtle text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <span className="flex items-center gap-2">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  Faqat ishlaydiganlar
+                </span>
+                <span className="font-mono text-[10px]">{playableCount}/{channels.length}</span>
+              </button>
               <div className="overflow-x-auto scrollbar-hide">
                 <CategoryFilter categories={categories} selected={selectedCategory} onSelect={setSelectedCategory} />
               </div>

@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useIPTVChannels } from './useIPTVChannels';
 import { useShamsChannels } from './useShamsChannels';
 import { useUzbekChannels } from './useUzbekChannels';
+import { normalizeSearchText } from '@/utils/search';
 
 export interface Channel {
   id: string;
@@ -21,6 +22,7 @@ export interface Channel {
   embed_allowed?: boolean | null;
   share_enabled?: boolean | null;
   source?: 'alsamos' | 'iptv-org' | 'shams' | 'uz';
+  stream_health?: 'ready' | 'mixed-content' | 'unsupported' | 'unknown';
 }
 
 export interface Schedule {
@@ -43,34 +45,65 @@ export function useChannels() {
   const { uzChannels, uzLoading } = useUzbekChannels();
   const channels = useMemo(() => {
     const tagged = dbChannels.map(c => ({ ...c, source: c.source ?? ('alsamos' as const) }));
-    // Order: Alsamos → Uzbek → Shams → IPTV-Org
-    return [...tagged, ...uzChannels, ...shamsChannels, ...iptvChannels];
+    const priority = { alsamos: 0, uz: 1, shams: 2, 'iptv-org': 3 } as const;
+    const unique = new Map<string, Channel>();
+
+    for (const channel of [...tagged, ...uzChannels, ...shamsChannels, ...iptvChannels]) {
+      const source = channel.source ?? 'alsamos';
+      const key = normalizeSearchText(`${channel.name}-${channel.category || ''}`);
+      const existing = unique.get(key);
+      if (!existing) {
+        unique.set(key, { ...channel, source });
+        continue;
+      }
+
+      const existingPriority = priority[existing.source ?? 'alsamos'];
+      const nextPriority = priority[source];
+      const existingPlayable = existing.stream_health !== 'mixed-content' && existing.stream_health !== 'unsupported';
+      const nextPlayable = channel.stream_health !== 'mixed-content' && channel.stream_health !== 'unsupported';
+
+      if ((!existingPlayable && nextPlayable) || nextPriority < existingPriority) {
+        unique.set(key, { ...channel, source });
+      }
+    }
+
+    return Array.from(unique.values()).sort((a, b) => {
+      const sourceDiff = priority[a.source ?? 'alsamos'] - priority[b.source ?? 'alsamos'];
+      if (sourceDiff !== 0) return sourceDiff;
+      if (Number(b.is_live) !== Number(a.is_live)) return Number(b.is_live) - Number(a.is_live);
+      return a.name.localeCompare(b.name);
+    });
   }, [dbChannels, iptvChannels, shamsChannels, uzChannels]);
 
   useEffect(() => {
     const fetchData = async () => {
-      const [channelsRes, schedulesRes] = await Promise.all([
-        // Use the public view that excludes sensitive fields (stream_key, rtmp_url)
-        supabase
-          .from('channels_public')
-          .select('*')
-          .order('is_alsamos_channel', { ascending: false })
-          .order('is_live', { ascending: false })
-          .order('name'),
-        supabase
-          .from('channel_schedules')
-          .select('*')
-          .gte('end_time', new Date().toISOString())
-          .order('start_time')
-      ]);
+      try {
+        const [channelsRes, schedulesRes] = await Promise.all([
+          // Use the public view that excludes sensitive fields (stream_key, rtmp_url)
+          supabase
+            .from('channels_public')
+            .select('*')
+            .order('is_alsamos_channel', { ascending: false })
+            .order('is_live', { ascending: false })
+            .order('name'),
+          supabase
+            .from('channel_schedules')
+            .select('*')
+            .gte('end_time', new Date().toISOString())
+            .order('start_time')
+        ]);
 
-      if (channelsRes.data) {
-        setDbChannels(channelsRes.data as Channel[]);
+        if (channelsRes.data) {
+          setDbChannels(channelsRes.data as Channel[]);
+        }
+        if (schedulesRes.data) {
+          setSchedules(schedulesRes.data as Schedule[]);
+        }
+      } catch (error) {
+        console.error('Error fetching channels:', error);
+      } finally {
+        setLoading(false);
       }
-      if (schedulesRes.data) {
-        setSchedules(schedulesRes.data as Schedule[]);
-      }
-      setLoading(false);
     };
 
     fetchData();

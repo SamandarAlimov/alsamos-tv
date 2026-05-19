@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Radio, Play } from 'lucide-react';
+import { AlertTriangle, Play, Radio } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Channel, Schedule } from '@/hooks/useChannels';
 
@@ -19,6 +19,7 @@ export function GlassChannelCard({
     ((Date.now() - new Date(currentProgram.start_time).getTime()) / 
     (new Date(currentProgram.end_time).getTime() - new Date(currentProgram.start_time).getTime())) * 100
   )) : 0;
+  const hasStreamWarning = channel.stream_health === 'mixed-content' || channel.stream_health === 'unsupported';
 
   return (
     <motion.button
@@ -50,7 +51,7 @@ export function GlassChannelCard({
           isSelected ? "ring-2 ring-primary/40 shadow-lg shadow-primary/10" : "ring-1 ring-white/5"
         )}>
           {channel.logo_url ? (
-            <img src={channel.logo_url} alt={channel.name} className="w-full h-full object-cover" />
+            <img src={channel.logo_url} alt={channel.name} className="w-full h-full object-contain p-1.5 bg-black/30" loading="lazy" />
           ) : (
             <div className={cn(
               "w-full h-full flex items-center justify-center",
@@ -77,10 +78,20 @@ export function GlassChannelCard({
                 <span className="w-2 h-2 bg-accent rounded-full block absolute inset-0 animate-ping opacity-75" />
               </span>
             )}
+            {hasStreamWarning && (
+              <AlertTriangle className="w-3.5 h-3.5 text-yellow-500 flex-shrink-0" />
+            )}
           </div>
-          <p className="text-xs text-muted-foreground truncate mt-0.5">
-            {currentProgram?.program_title || channel.current_program || 'Live Broadcast'}
-          </p>
+          <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+            {channel.source && (
+              <span className="text-[9px] uppercase tracking-wide text-muted-foreground/70 rounded bg-white/5 px-1.5 py-0.5 flex-shrink-0">
+                {channel.source === 'iptv-org' ? 'IPTV' : channel.source}
+              </span>
+            )}
+            <p className="text-xs text-muted-foreground truncate">
+              {hasStreamWarning ? 'Brauzerda ochilmasligi mumkin' : currentProgram?.program_title || channel.current_program || 'Live Broadcast'}
+            </p>
+          </div>
         </div>
         
         {isSelected && (

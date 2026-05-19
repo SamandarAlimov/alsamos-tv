@@ -218,6 +218,11 @@
     );
   }
 
+  .yt-privacy-shell iframe {
+    transform: scale(1.012);
+    transform-origin: center;
+  }
+
   /* Shimmer Effect */
   .shimmer {
     background: linear-gradient(

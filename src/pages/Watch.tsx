@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { fallbackContent } from '@/data/fallbackContent';
 
 interface ContentData {
   id: string;
@@ -28,6 +29,22 @@ function getYouTubeId(url: string | null | undefined): string | null {
   return null;
 }
 
+const isUuid = (value: string | undefined) =>
+  !!value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+
+function getFallbackContent(id: string | undefined): ContentData | null {
+  if (!id) return null;
+  const item = fallbackContent.find((content) => content.id === id);
+  if (!item) return null;
+
+  return {
+    id: item.id,
+    title: item.title,
+    backdrop_url: item.backdrop,
+    video_url: item.videoUrl || null,
+  };
+}
+
 const Watch = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -46,6 +63,13 @@ const Watch = () => {
       }
 
       try {
+        const localContent = getFallbackContent(id);
+        if (localContent && !isUuid(id)) {
+          setContent(localContent);
+          setLoading(false);
+          return;
+        }
+
         const { data, error } = await supabase
           .from('content')
           .select('id, title, backdrop_url, video_url')
@@ -53,6 +77,12 @@ const Watch = () => {
           .single();
 
         if (error || !data) {
+          const fallback = getFallbackContent(id);
+          if (fallback) {
+            setContent(fallback);
+            return;
+          }
+
           toast({
             title: 'Content not found',
             description: 'The requested content could not be found.',
@@ -77,6 +107,7 @@ const Watch = () => {
   const handleProgressUpdate = useCallback(
     async (progress: number, duration: number) => {
       if (!user || !id) return;
+      if (!isUuid(id)) return;
       const completed = duration > 0 && progress / duration >= 0.9;
       try {
         const { data: existing } = await supabase
@@ -113,6 +144,7 @@ const Watch = () => {
   useEffect(() => {
     const incrementViewCount = async () => {
       if (!id) return;
+      if (!isUuid(id)) return;
       try {
         await supabase.rpc('increment_view_count' as any, { content_id: id });
       } catch (err) {

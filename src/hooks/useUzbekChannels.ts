@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import type { Channel } from './useChannels';
+import { getPreferredStreamUrl, getStreamHealth } from '@/utils/streams';
 
 const UZ_URLS = [
   'https://iptv-org.github.io/iptv/countries/uz.m3u',
   'https://iptv-org.github.io/iptv/languages/uzb.m3u',
 ];
-const CACHE_KEY = 'uz_channels_cache_v1';
+const CACHE_KEY = 'uz_channels_cache_v2';
 const CACHE_TTL = 1000 * 60 * 60 * 6;
 
 function parseAttr(line: string, key: string): string | null {
@@ -28,21 +29,25 @@ function parseM3U(text: string, idPrefix: string): Channel[] {
       while (j < lines.length && (lines[j].trim() === '' || lines[j].trim().startsWith('#'))) j++;
       const url = lines[j]?.trim();
       if (url && /^https?:\/\//i.test(url)) {
+        const streamUrl = getPreferredStreamUrl(url) || url;
+        const streamType = /\.m3u8(\?|$)/i.test(streamUrl) ? 'hls' : 'mpegts';
+        const streamHealth = getStreamHealth(streamUrl, streamType);
         out.push({
           id: `${idPrefix}:${n++}`,
           name,
           description: `O'zbekiston • ${group}`,
           logo_url: logo,
-          stream_url: url,
+          stream_url: streamUrl,
           category: group || 'Uzbekistan',
           is_live: true,
           current_program: 'Live Broadcast',
           viewer_count: 0,
-          stream_type: /\.m3u8(\?|$)/i.test(url) ? 'hls' : 'mpegts',
+          stream_type: streamType,
           is_alsamos_channel: false,
-          embed_allowed: true,
+          embed_allowed: streamHealth !== 'mixed-content' && streamHealth !== 'unsupported',
           share_enabled: true,
           source: 'uz',
+          stream_health: streamHealth,
         });
       }
       i = j + 1;

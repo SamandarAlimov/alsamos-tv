@@ -50,7 +50,8 @@ export function useChannels() {
 
     for (const channel of [...tagged, ...uzChannels, ...shamsChannels, ...iptvChannels]) {
       const source = channel.source ?? 'alsamos';
-      const key = normalizeSearchText(`${channel.name}-${channel.category || ''}`);
+      const streamKey = channel.stream_url || channel.youtube_video_id || channel.youtube_channel_id || channel.id;
+      const key = normalizeSearchText(`${source}-${channel.name}-${channel.category || ''}-${streamKey}`);
       const existing = unique.get(key);
       if (!existing) {
         unique.set(key, { ...channel, source });
@@ -151,7 +152,7 @@ export function useChannels() {
   return {
     channels,
     schedules,
-    loading: loading && iptvLoading && shamsLoading && uzLoading,
+    loading: loading || iptvLoading || shamsLoading || uzLoading,
     getCurrentProgram,
     getUpcomingPrograms,
     getChannelSchedule,

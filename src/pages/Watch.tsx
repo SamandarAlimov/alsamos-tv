@@ -1,6 +1,6 @@
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Loader2 } from 'lucide-react';
 import { VideoPlayer } from '@/components/VideoPlayer';
 import { YouTubePlayer, YTPlayer } from '@/components/YouTubePlayer';
 import { Button } from '@/components/ui/button';
@@ -16,15 +16,38 @@ interface ContentData {
   video_url: string | null;
 }
 
-// Extract YouTube video ID from common URL formats
-function getYouTubeId(url: string | null | undefined): string | null {
+type YouTubeSource = {
+  videoId?: string;
+  playlistId?: string;
+};
+
+// Extract YouTube video and playlist IDs from common URL formats.
+function getYouTubeSource(url: string | null | undefined): YouTubeSource | null {
   if (!url) return null;
-  const patterns = [
-    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([A-Za-z0-9_-]{11})/,
-  ];
-  for (const re of patterns) {
-    const m = url.match(re);
-    if (m) return m[1];
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.replace(/^www\./, '');
+    const playlistId = parsed.searchParams.get('list') || undefined;
+
+    if (host === 'youtu.be') {
+      const videoId = parsed.pathname.split('/').filter(Boolean)[0];
+      return videoId || playlistId ? { videoId, playlistId } : null;
+    }
+
+    if (host.endsWith('youtube.com') || host === 'youtube-nocookie.com') {
+      const parts = parsed.pathname.split('/').filter(Boolean);
+      const videoId =
+        parsed.searchParams.get('v') ||
+        (['embed', 'shorts', 'live'].includes(parts[0]) ? parts[1] : undefined);
+
+      return videoId || playlistId ? { videoId: videoId || undefined, playlistId } : null;
+    }
+  } catch {
+    const videoMatch = url.match(/(?:v=|youtu\.be\/|embed\/|shorts\/|live\/)([A-Za-z0-9_-]{10,})/);
+    const playlistMatch = url.match(/[?&]list=([A-Za-z0-9_-]+)/);
+    if (videoMatch?.[1] || playlistMatch?.[1]) {
+      return { videoId: videoMatch?.[1], playlistId: playlistMatch?.[1] };
+    }
   }
   return null;
 }
@@ -164,14 +187,21 @@ const Watch = () => {
 
   if (!content) return null;
 
-  const ytId = getYouTubeId(content.video_url);
+  const ytSource = getYouTubeSource(content.video_url);
+  const goBack = () => {
+    if (window.history.length > 1) navigate(-1);
+    else navigate('/');
+  };
 
   // YouTube playback path — wrap with our own minimal overlay
-  if (ytId) {
+  if (ytSource) {
     return (
       <div className="w-full h-screen bg-black relative">
         <YouTubePlayer
-          videoId={ytId}
+          videoId={ytSource.videoId}
+          playlistId={ytSource.playlistId && !ytSource.videoId ? ytSource.playlistId : undefined}
+          playlistLength={100}
+          syncEnabled={!!ytSource.playlistId && !ytSource.videoId}
           autoplay
           muted={false}
           fullControls
@@ -180,15 +210,29 @@ const Watch = () => {
           className="w-full h-full"
         />
         {/* Minimal top bar — pointer-events-none so it never blocks the player */}
-        <div className="pointer-events-none absolute top-0 left-0 right-0 p-3 md:p-5 flex items-center gap-3 bg-gradient-to-b from-black/70 to-transparent">
-          <Link to="/" className="pointer-events-auto">
-            <Button variant="ghost" size="icon" className="text-white hover:bg-white/15 backdrop-blur-md bg-white/5 rounded-full">
-              <ArrowLeft className="w-5 h-5" />
-            </Button>
-          </Link>
+        <div className="pointer-events-none absolute top-0 left-0 right-0 z-50 p-3 md:p-5 flex items-center gap-3 bg-gradient-to-b from-black/85 via-black/45 to-transparent">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="pointer-events-auto text-white hover:bg-white/15 backdrop-blur-md bg-white/10 rounded-full"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              goBack();
+            }}
+            aria-label="Orqaga qaytish"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </Button>
           <h1 className="font-display font-semibold text-base md:text-lg text-white truncate">
             {content.title}
           </h1>
+          {!ytSource.videoId && ytSource.playlistId && (
+            <span className="ml-auto hidden sm:inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs text-white/75 backdrop-blur-md">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              Serial playlist
+            </span>
+          )}
         </div>
       </div>
     );
@@ -206,6 +250,7 @@ const Watch = () => {
         poster={content.backdrop_url || undefined}
         title={content.title}
         contentId={content.id}
+        onBack={goBack}
         onProgressUpdate={handleProgressUpdate}
       />
     </div>

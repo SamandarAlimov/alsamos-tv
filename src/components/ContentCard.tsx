@@ -122,7 +122,7 @@ export function ContentCard({ content, index = 0, variant = 'default' }: Content
             {content.type === 'series' && (
               <>
                 <span>•</span>
-                <span>{content.seasons} Seasons</span>
+                <span>{content.seasons || 1} mavsum</span>
               </>
             )}
           </div>

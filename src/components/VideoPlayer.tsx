@@ -18,7 +18,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { cn } from '@/lib/utils';
-import { Link } from 'react-router-dom';
 import Hls from 'hls.js';
 import {
   DropdownMenu,
@@ -277,6 +276,17 @@ export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressU
     return quality?.label || 'Auto';
   };
 
+  const handleBackClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (onBack) {
+      onBack();
+      return;
+    }
+    if (window.history.length > 1) window.history.back();
+    else window.location.href = '/';
+  };
+
   return (
     <div
       ref={containerRef}
@@ -367,11 +377,15 @@ export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressU
 
             {/* Top Bar */}
             <div className="absolute top-0 left-0 right-0 p-4 md:p-6 flex items-center justify-between">
-              <Link to="/">
-                <Button variant="ghost" size="icon" className="text-white hover:bg-white/20">
-                  <ArrowLeft className="w-5 h-5" />
-                </Button>
-              </Link>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-white hover:bg-white/20 rounded-full bg-white/10 backdrop-blur-md"
+                onClick={handleBackClick}
+                aria-label="Orqaga qaytish"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </Button>
               {title && (
                 <h1 className="font-display font-semibold text-lg text-white truncate mx-4">
                   {title}

@@ -30,15 +30,17 @@ import { VirtualChannelList } from '@/components/live/VirtualChannelList';
 import { SourceFilter, ChannelSource } from '@/components/live/SourceFilter';
 import { getSyncedPlaybackPosition, getSyncedPlaybackPositionWithOffset } from '@/utils/playlistSync';
 import { rankedSearch } from '@/utils/search';
-import { getStreamHealth } from '@/utils/streams';
+import { getStreamCandidates, getStreamHealth } from '@/utils/streams';
 
 function isBrowserPlayableChannel(channel: Channel | null | undefined, failedIds = new Set<string>(), strict = false) {
   if (!channel || failedIds.has(channel.id)) return false;
   if (channel.youtube_video_id || channel.stream_type === 'youtube_playlist' || channel.stream_type === 'youtube_live') return true;
-  if (!channel.stream_url || channel.embed_allowed === false) return false;
+  if (!channel.stream_url) return false;
   const health = channel.stream_health || getStreamHealth(channel.stream_url, channel.stream_type);
-  if (strict) return health !== 'mixed-content' && health !== 'unsupported';
-  return health !== 'mixed-content' && health !== 'unsupported';
+  const hasFallback = getStreamCandidates(channel.stream_url).length > 0;
+  if (channel.embed_allowed === false && !hasFallback) return false;
+  if (strict) return (health !== 'unsupported' && health !== 'mixed-content') || hasFallback;
+  return health !== 'unsupported' || hasFallback;
 }
 
 const LiveTV = () => {
@@ -58,7 +60,7 @@ const LiveTV = () => {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedSource, setSelectedSource] = useState<ChannelSource>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [showPlayableOnly, setShowPlayableOnly] = useState(true);
+  const [showPlayableOnly, setShowPlayableOnly] = useState(false);
   const [failedChannelIds, setFailedChannelIds] = useState<Set<string>>(new Set());
   const [mobileTab, setMobileTab] = useState<'channels' | 'schedule'>('channels');
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -302,6 +304,10 @@ const LiveTV = () => {
     ? selectedChannel.stream_health || getStreamHealth(selectedChannel.stream_url, selectedChannel.stream_type)
     : 'ready';
   const canPlaySelected = isBrowserPlayableChannel(selectedChannel, failedChannelIds, false);
+  const selectedStreamCandidates = useMemo(
+    () => getStreamCandidates(selectedChannel?.stream_url),
+    [selectedChannel?.stream_url]
+  );
   const playableCount = channels.filter((channel) => isBrowserPlayableChannel(channel, failedChannelIds, true)).length;
 
   if (loading) {
@@ -370,9 +376,12 @@ const LiveTV = () => {
                   ref={videoRef}
                   key={selectedChannel.id}
                   src={selectedChannel.stream_url}
+                  srcs={selectedStreamCandidates}
                   muted={isMuted}
                   autoPlay
                   className="w-full h-full object-contain"
+                  streamType={selectedChannel.stream_type}
+                  onRecovering={() => setShowControls(true)}
                   onError={handleStreamError}
                 />
               ) : selectedChannel ? (

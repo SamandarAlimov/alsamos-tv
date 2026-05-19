@@ -343,17 +343,19 @@ export function YouTubePlayer({
       <div
         ref={playerContainerRef}
         className={cn(
-          "absolute inset-0 w-full h-full",
+          "absolute inset-0 w-full h-full transform-gpu",
           (fullControls || hideControls) && "pointer-events-none"
         )}
+        style={(fullControls || hideControls) ? { transform: 'scale(1.018)' } : undefined}
       />
 
       {/* Privacy masks hide transient YouTube title/cards while our controls stay on top. */}
       {(fullControls || hideControls) && (
         <>
-          <div className="absolute top-0 left-0 right-0 h-24 bg-gradient-to-b from-black/70 via-black/25 to-transparent pointer-events-none z-10" />
-          <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-black/70 via-black/20 to-transparent pointer-events-none z-10" />
-          <div className="absolute top-0 right-0 w-40 h-16 bg-gradient-to-l from-black/45 to-transparent pointer-events-none z-10" />
+          <div className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-black/82 via-black/36 to-transparent pointer-events-none z-10" />
+          <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/86 via-black/30 to-transparent pointer-events-none z-10" />
+          <div className="absolute top-0 right-0 w-56 h-24 bg-gradient-to-l from-black/62 to-transparent pointer-events-none z-10" />
+          <div className="absolute bottom-0 right-0 w-64 h-24 bg-gradient-to-l from-black/65 to-transparent pointer-events-none z-10" />
         </>
       )}
 

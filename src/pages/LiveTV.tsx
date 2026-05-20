@@ -68,6 +68,7 @@ const LiveTV = () => {
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const [showPlayableOnly, setShowPlayableOnly] = useState(false);
   const [failedChannelIds, setFailedChannelIds] = useState<Set<string>>(new Set());
+  const [playerRetryKey, setPlayerRetryKey] = useState(0);
   const [mobileTab, setMobileTab] = useState<'channels' | 'schedule'>('channels');
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -226,30 +227,48 @@ const LiveTV = () => {
     setIsMuted(v === 0);
   };
 
-  const goToPrevChannel = () => setSelectedChannel(channels[currentIndex > 0 ? currentIndex - 1 : channels.length - 1]);
-  const goToNextChannel = () => setSelectedChannel(channels[currentIndex < channels.length - 1 ? currentIndex + 1 : 0]);
+  const clearChannelFailure = useCallback((channelId: string) => {
+    setFailedChannelIds((current) => {
+      if (!current.has(channelId)) return current;
+      const next = new Set(current);
+      next.delete(channelId);
+      return next;
+    });
+  }, []);
 
-  const findNextPlayableChannel = useCallback((from: Channel | null, failedIds: Set<string>) => {
-    if (channels.length === 0) return null;
-    const startIndex = from ? Math.max(0, channels.findIndex((channel) => channel.id === from.id)) : 0;
-    for (let offset = 1; offset <= channels.length; offset += 1) {
-      const candidate = channels[(startIndex + offset) % channels.length];
-      if (isBrowserPlayableChannel(candidate, failedIds, true)) return candidate;
-    }
-    return null;
-  }, [channels]);
+  const selectChannelForPlayback = useCallback((channel: Channel) => {
+    clearChannelFailure(channel.id);
+    setSelectedChannel(channel);
+    setPlayerRetryKey((value) => value + 1);
+  }, [clearChannelFailure]);
+
+  const goToPrevChannel = () => {
+    if (channels.length === 0) return;
+    selectChannelForPlayback(channels[currentIndex > 0 ? currentIndex - 1 : channels.length - 1]);
+  };
+  const goToNextChannel = () => {
+    if (channels.length === 0) return;
+    selectChannelForPlayback(channels[currentIndex < channels.length - 1 ? currentIndex + 1 : 0]);
+  };
 
   const handleStreamError = useCallback(() => {
     if (!selectedChannel) return;
-    const nextFailed = new Set(failedChannelIds);
-    nextFailed.add(selectedChannel.id);
-    setFailedChannelIds(nextFailed);
+    setFailedChannelIds((current) => {
+      if (current.has(selectedChannel.id)) return current;
+      const next = new Set(current);
+      next.add(selectedChannel.id);
+      return next;
+    });
+    revealControls(5000, true);
+  }, [revealControls, selectedChannel]);
 
-    const nextChannel = findNextPlayableChannel(selectedChannel, nextFailed);
-    if (nextChannel) {
-      setSelectedChannel(nextChannel);
-    }
-  }, [failedChannelIds, findNextPlayableChannel, selectedChannel]);
+  const retrySelectedChannel = useCallback(() => {
+    if (!selectedChannel) return;
+    clearChannelFailure(selectedChannel.id);
+    setPlayerRetryKey((value) => value + 1);
+    setIsPlaying(true);
+    revealControls(5000, true);
+  }, [clearChannelFailure, revealControls, selectedChannel]);
 
   const handlePlayerRecovering = useCallback(() => {
     revealControls(3000, true);
@@ -321,9 +340,9 @@ const LiveTV = () => {
   }, [isPlaying, isMuted, volume, currentIndex, channels.length, selectedChannel?.id]);
 
   const handleChannelSelect = useCallback((channel: Channel) => {
-    setSelectedChannel(channel);
+    selectChannelForPlayback(channel);
     if (showMiniPlayer && miniPlayerChannel?.id === channel.id) { setShowMiniPlayer(false); setMiniPlayerChannel(null); }
-  }, [miniPlayerChannel?.id, showMiniPlayer]);
+  }, [miniPlayerChannel?.id, selectChannelForPlayback, showMiniPlayer]);
 
   const togglePlay = () => {
     if (videoRef.current) { isPlaying ? videoRef.current.pause() : videoRef.current.play(); }
@@ -369,8 +388,10 @@ const LiveTV = () => {
       userAgent: selectedChannel?.http_user_agent,
       proxyOnly: true,
       preferDirectHls: true,
+      directHlsOnly: selectedChannel?.source === 'shams',
+      forceHls: selectedChannel?.stream_type === 'hls',
     }),
-    [selectedChannel?.http_referrer, selectedChannel?.http_user_agent, selectedChannel?.stream_url]
+    [selectedChannel?.http_referrer, selectedChannel?.http_user_agent, selectedChannel?.source, selectedChannel?.stream_type, selectedChannel?.stream_url]
   );
   const playableCount = useMemo(
     () => channels.filter((channel) => isBrowserPlayableChannel(channel, failedChannelIds, true)).length,
@@ -441,7 +462,7 @@ const LiveTV = () => {
               ) : canPlaySelected && selectedChannel?.stream_url ? (
                 <HLSPlayer
                   ref={videoRef}
-                  key={selectedChannel.id}
+                  key={`${selectedChannel.id}:${playerRetryKey}`}
                   src={selectedChannel.stream_url}
                   srcs={selectedStreamCandidates}
                   muted={isMuted}
@@ -465,20 +486,17 @@ const LiveTV = () => {
                     <p className="text-white/65 text-xs md:text-sm">
                       {selectedHealth === 'mixed-content'
                         ? 'Manba xavfsiz HTTPS kanaliga moslashtirilmoqda.'
-                        : "Player avtomatik qayta ulanmoqda. Zarur bo'lsa keyingi stabil kanal tanlanadi."}
+                        : "Bu kanal sekin javob beryapti. Player shu kanalning o'zida qayta ulanadi, boshqa kanalga avtomatik o'tmaydi."}
                     </p>
                     <div className="mt-5 flex flex-wrap justify-center gap-2">
                       <Button
                         variant="hero"
                         size="sm"
-                        onClick={() => {
-                          const next = findNextPlayableChannel(selectedChannel, failedChannelIds);
-                          if (next) setSelectedChannel(next);
-                        }}
+                        onClick={retrySelectedChannel}
                         className="gap-2"
                       >
                         <RotateCcw className="w-4 h-4" />
-                        Keyingi ishlaydigan kanal
+                        Qayta urinish
                       </Button>
                       <Button variant="glass" size="sm" onClick={() => setShowPlayableOnly(false)}>
                         Barchasini ko'rsatish

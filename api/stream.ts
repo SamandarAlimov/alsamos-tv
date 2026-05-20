@@ -65,7 +65,11 @@ function getProxyUrl(target: string, referer?: string | null, userAgent?: string
 
 function isHlsManifest(target: URL, contentType: string | null) {
   const normalizedType = (contentType || '').split(';')[0].trim().toLowerCase();
-  return HLS_CONTENT_TYPES.includes(normalizedType) || target.pathname.toLowerCase().endsWith('.m3u8');
+  const path = target.pathname.toLowerCase();
+  return (
+    HLS_CONTENT_TYPES.includes(normalizedType) ||
+    path.endsWith('.m3u8')
+  );
 }
 
 function rewriteUri(value: string, base: URL, options: RewriteOptions) {
@@ -163,6 +167,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   const userAgent = getQueryValue(req, 'ua') || getQueryValue(req, 'userAgent') || getHeaderValue(req, 'user-agent') || DEFAULT_USER_AGENT;
   const rawMode = getQueryValue(req, 'raw') === '1' || getQueryValue(req, 'rewrite') === '0';
   const directHls = getQueryValue(req, 'direct') === '1';
+  const forceHls = getQueryValue(req, 'hls') === '1';
   const upstreamHeaders = new Headers();
   upstreamHeaders.set('user-agent', userAgent);
   upstreamHeaders.set('accept', getHeaderValue(req, 'accept') || '*/*');
@@ -177,7 +182,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   if (range) upstreamHeaders.set('range', range);
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20000);
+  const timeout = setTimeout(() => controller.abort(), 30000);
 
   let upstream: Response;
   try {
@@ -195,7 +200,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   clearTimeout(timeout);
 
   const upstreamBase = new URL(upstream.url || target.toString());
-  const rewriteManifest = !rawMode && isHlsManifest(upstreamBase, upstream.headers.get('content-type'));
+  const rewriteManifest = !rawMode && (forceHls || isHlsManifest(upstreamBase, upstream.headers.get('content-type')));
   copyUpstreamHeaders(upstream, res, rewriteManifest);
   res.status(upstream.status);
 

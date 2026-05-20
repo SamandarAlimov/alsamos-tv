@@ -99,6 +99,7 @@ export const HLSPlayer = forwardRef<HTMLVideoElement, HLSPlayerProps>(
     const recoveryAttemptsRef = useRef(0);
     const nativeErrorTimerRef = useRef<ReturnType<typeof setTimeout>>();
     const retryTimerRef = useRef<ReturnType<typeof setTimeout>>();
+    const stallTimerRef = useRef<ReturnType<typeof setTimeout>>();
     const startupWatchdogRef = useRef<ReturnType<typeof setTimeout>>();
     const onErrorRef = useRef(onError);
     const onRecoveringRef = useRef(onRecovering);
@@ -110,9 +111,10 @@ export const HLSPlayer = forwardRef<HTMLVideoElement, HLSPlayerProps>(
         userAgent,
         proxyOnly: true,
         preferDirectHls: true,
+        forceHls: (streamType || '').toLowerCase() === 'hls',
       });
       return list.length ? list : [src];
-    }, [referrer, src, srcs, userAgent]);
+    }, [referrer, src, srcs, streamType, userAgent]);
 
     const activeSrc = candidates[Math.min(sourceIndex, Math.max(candidates.length - 1, 0))];
 
@@ -158,6 +160,7 @@ export const HLSPlayer = forwardRef<HTMLVideoElement, HLSPlayerProps>(
       const tryNextSource = () => {
         if (nativeErrorTimerRef.current) clearTimeout(nativeErrorTimerRef.current);
         if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+        if (stallTimerRef.current) clearTimeout(stallTimerRef.current);
         if (startupWatchdogRef.current) clearTimeout(startupWatchdogRef.current);
 
         if (sourceIndex < candidates.length - 1) {
@@ -179,22 +182,45 @@ export const HLSPlayer = forwardRef<HTMLVideoElement, HLSPlayerProps>(
       const handlePlaying = () => {
         if (nativeErrorTimerRef.current) clearTimeout(nativeErrorTimerRef.current);
         if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+        if (stallTimerRef.current) clearTimeout(stallTimerRef.current);
         if (startupWatchdogRef.current) clearTimeout(startupWatchdogRef.current);
+        recoveryAttemptsRef.current = 0;
       };
       const handleReady = () => {
         if (video.readyState >= 2 && startupWatchdogRef.current) {
           clearTimeout(startupWatchdogRef.current);
         }
+        if (stallTimerRef.current) clearTimeout(stallTimerRef.current);
         if (autoPlay && video.paused) video.play().catch(() => {});
+      };
+      const handleStalled = () => {
+        if (stallTimerRef.current) clearTimeout(stallTimerRef.current);
+        stallTimerRef.current = setTimeout(() => {
+          if (video.readyState >= 3) return;
+          onRecoveringRef.current?.();
+          if (hlsRef.current) {
+            hlsRef.current.startLoad(-1);
+          } else if (mpegTsRef.current) {
+            try {
+              mpegTsRef.current.unload();
+              mpegTsRef.current.load();
+            } catch {}
+          } else {
+            video.load();
+          }
+          if (autoPlay && video.paused) video.play().catch(() => {});
+        }, 18000);
       };
       cleanupPlayers();
       video.addEventListener('error', handleVideoError);
       video.addEventListener('playing', handlePlaying);
       video.addEventListener('loadeddata', handleReady);
       video.addEventListener('canplay', handleReady);
+      video.addEventListener('waiting', handleStalled);
+      video.addEventListener('stalled', handleStalled);
       startupWatchdogRef.current = setTimeout(() => {
         if (video.readyState < 2) tryNextSource();
-      }, 22000);
+      }, 35000);
 
       const normalizedStreamType = (streamType || '').toLowerCase();
       const isM3U8 = normalizedStreamType === 'hls' || isHlsUrl(activeSrc);
@@ -204,15 +230,24 @@ export const HLSPlayer = forwardRef<HTMLVideoElement, HLSPlayerProps>(
       if (isM3U8 && Hls.isSupported()) {
         const hls = new Hls({
           enableWorker: true,
-          lowLatencyMode: true,
-          backBufferLength: 45,
+          lowLatencyMode: false,
+          backBufferLength: 20,
           maxBufferLength: 45,
-          liveSyncDurationCount: 3,
-          manifestLoadingMaxRetry: 6,
+          maxMaxBufferLength: 75,
+          liveSyncDurationCount: 5,
+          liveMaxLatencyDurationCount: 15,
+          manifestLoadingTimeOut: 25000,
+          manifestLoadingMaxRetry: 12,
           manifestLoadingRetryDelay: 1000,
-          manifestLoadingMaxRetryTimeout: 12000,
-          levelLoadingMaxRetry: 6,
-          fragLoadingMaxRetry: 6,
+          manifestLoadingMaxRetryTimeout: 20000,
+          levelLoadingTimeOut: 25000,
+          levelLoadingMaxRetry: 12,
+          levelLoadingRetryDelay: 1000,
+          levelLoadingMaxRetryTimeout: 20000,
+          fragLoadingTimeOut: 30000,
+          fragLoadingMaxRetry: 12,
+          fragLoadingRetryDelay: 1000,
+          fragLoadingMaxRetryTimeout: 20000,
         });
         hlsRef.current = hls;
         hls.loadSource(activeSrc);
@@ -222,17 +257,23 @@ export const HLSPlayer = forwardRef<HTMLVideoElement, HLSPlayerProps>(
         });
         hls.on(Hls.Events.ERROR, (_e, data) => {
           if (!data.fatal) {
-            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
             return;
           }
 
           recoveryAttemptsRef.current += 1;
-          if (data.type === Hls.ErrorTypes.MEDIA_ERROR && recoveryAttemptsRef.current <= 3) {
+          if (data.type === Hls.ErrorTypes.MEDIA_ERROR && recoveryAttemptsRef.current <= 5) {
+            onRecoveringRef.current?.();
             hls.recoverMediaError();
             return;
           }
-          if (data.type === Hls.ErrorTypes.NETWORK_ERROR && recoveryAttemptsRef.current <= 6) {
-            hls.startLoad();
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR && recoveryAttemptsRef.current <= 12) {
+            const retryDelay = Math.min(6000, 800 + recoveryAttemptsRef.current * 650);
+            onRecoveringRef.current?.();
+            if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+            retryTimerRef.current = setTimeout(() => {
+              hls.startLoad(-1);
+              if (autoPlay && video.paused) video.play().catch(() => {});
+            }, retryDelay);
             return;
           }
 
@@ -266,7 +307,26 @@ export const HLSPlayer = forwardRef<HTMLVideoElement, HLSPlayerProps>(
           mpegTsRef.current = player;
           player.attachMediaElement(video);
           player.load();
-          player.on(mpegts.Events.ERROR, () => tryNextSource());
+          player.on(mpegts.Events.ERROR, () => {
+            recoveryAttemptsRef.current += 1;
+            if (recoveryAttemptsRef.current <= 4) {
+              const retryDelay = Math.min(5000, 700 + recoveryAttemptsRef.current * 700);
+              onRecoveringRef.current?.();
+              if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+              retryTimerRef.current = setTimeout(() => {
+                try {
+                  player.unload();
+                  player.load();
+                  const playResult = player.play();
+                  if (playResult && typeof playResult.catch === 'function') playResult.catch(() => {});
+                } catch {
+                  tryNextSource();
+                }
+              }, retryDelay);
+              return;
+            }
+            tryNextSource();
+          });
           if (autoPlay) {
             const playResult = player.play();
             if (playResult && typeof playResult.catch === 'function') playResult.catch(() => {});
@@ -282,11 +342,14 @@ export const HLSPlayer = forwardRef<HTMLVideoElement, HLSPlayerProps>(
         cancelled = true;
         if (nativeErrorTimerRef.current) clearTimeout(nativeErrorTimerRef.current);
         if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+        if (stallTimerRef.current) clearTimeout(stallTimerRef.current);
         if (startupWatchdogRef.current) clearTimeout(startupWatchdogRef.current);
         video.removeEventListener('error', handleVideoError);
         video.removeEventListener('playing', handlePlaying);
         video.removeEventListener('loadeddata', handleReady);
         video.removeEventListener('canplay', handleReady);
+        video.removeEventListener('waiting', handleStalled);
+        video.removeEventListener('stalled', handleStalled);
         cleanupPlayers();
       };
     }, [activeSrc, autoPlay, candidates.length, sourceIndex, streamType]);

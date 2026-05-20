@@ -84,13 +84,23 @@ export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressU
       hlsRef.current = null;
     }
 
-    const isHls = /\.m3u8(\?|$)/i.test(src);
+    const isHls = /\.m3u8(\?|$)/i.test(src) || (() => {
+      try {
+        return new URL(src, window.location.origin).searchParams.get('hls') === '1';
+      } catch {
+        return false;
+      }
+    })();
     if (isHls && Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
-        lowLatencyMode: true,
-        backBufferLength: 60,
+        lowLatencyMode: false,
+        backBufferLength: 30,
         maxBufferLength: 60,
+        manifestLoadingTimeOut: 25000,
+        manifestLoadingMaxRetry: 8,
+        levelLoadingMaxRetry: 8,
+        fragLoadingMaxRetry: 8,
       });
       hlsRef.current = hls;
       hls.loadSource(src);

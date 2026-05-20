@@ -8,6 +8,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { fallbackContent } from '@/data/fallbackContent';
+import { normalizeSearchText } from '@/utils/search';
 
 interface ContentData {
   id: string;
@@ -68,6 +69,31 @@ function getFallbackContent(id: string | undefined): ContentData | null {
   };
 }
 
+function getYouTubeId(value: string | null | undefined) {
+  if (!value) return null;
+  try {
+    const parsed = new URL(value);
+    const host = parsed.hostname.replace(/^www\./, '');
+    if (host === 'youtu.be') return parsed.pathname.split('/').filter(Boolean)[0] || null;
+    if (host.includes('youtube.com')) {
+      const parts = parsed.pathname.split('/').filter(Boolean);
+      return parsed.searchParams.get('v') || (['embed', 'shorts', 'live'].includes(parts[0]) ? parts[1] : null);
+    }
+  } catch {
+    const match = value.match(/(?:v=|youtu\.be\/|embed\/|shorts\/|live\/)([A-Za-z0-9_-]{10,})/);
+    return match?.[1] || null;
+  }
+  return null;
+}
+
+function normalizeWatchContent(content: ContentData): ContentData {
+  const videoId = getYouTubeId(content.video_url);
+  if (normalizeSearchText(content.title) === 'otam' && videoId === '7XrD7KN1Zpk') {
+    return { ...content, title: 'Sotqin' };
+  }
+  return content;
+}
+
 const Watch = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -115,7 +141,7 @@ const Watch = () => {
           return;
         }
 
-        setContent(data);
+        setContent(normalizeWatchContent(data));
       } catch (err) {
         console.error('Error fetching content:', err);
         navigate('/');

@@ -12,6 +12,7 @@ interface HeroBannerProps {
 export function HeroBanner({ content }: HeroBannerProps) {
   const [isMuted, setIsMuted] = useState(true);
   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
+  const [imageFailed, setImageFailed] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -22,6 +23,10 @@ export function HeroBanner({ content }: HeroBannerProps) {
       });
     }
   }, []);
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [content.backdrop]);
 
   return (
     <div className="relative w-full h-[70vh] sm:h-[80vh] md:h-[85vh] lg:h-[90vh] overflow-hidden">
@@ -45,17 +50,26 @@ export function HeroBanner({ content }: HeroBannerProps) {
             <img
               src={content.backdrop}
               alt={content.title}
+              onError={() => setImageFailed(true)}
               className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ${
-                isVideoLoaded ? 'opacity-0' : 'opacity-100'
+                isVideoLoaded || imageFailed ? 'opacity-0' : 'opacity-100'
               }`}
             />
+            {imageFailed && (
+              <div className="absolute inset-0 bg-gradient-to-br from-slate-950 via-slate-800 to-amber-500/70" />
+            )}
           </>
         ) : (
-          <img
-            src={content.backdrop}
-            alt={content.title}
-            className="w-full h-full object-cover"
-          />
+          imageFailed ? (
+            <div className="w-full h-full bg-gradient-to-br from-slate-950 via-slate-800 to-amber-500/70" />
+          ) : (
+            <img
+              src={content.backdrop}
+              alt={content.title}
+              onError={() => setImageFailed(true)}
+              className="w-full h-full object-cover"
+            />
+          )
         )}
       </div>
 

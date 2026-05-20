@@ -15,6 +15,8 @@ interface DVRTimelineProps {
   onGoLive: () => void;
   /** Whether currently at live position */
   isLive: boolean;
+  disabled?: boolean;
+  unavailableLabel?: string;
   className?: string;
 }
 
@@ -26,6 +28,8 @@ export function DVRTimeline({
   onSeek,
   onGoLive,
   isLive,
+  disabled = false,
+  unavailableLabel = 'DVR mavjud emas',
   className,
 }: DVRTimelineProps) {
   const trackRef = useRef<HTMLDivElement>(null);
@@ -33,8 +37,10 @@ export function DVRTimeline({
   const [hoverOffset, setHoverOffset] = useState<number | null>(null);
   const [hoverX, setHoverX] = useState(0);
 
-  // Progress: 0 = 24h ago, 1 = live
-  const progress = 1 - currentOffset / maxRewindSeconds;
+  const safeMaxRewindSeconds = Math.max(1, maxRewindSeconds);
+  const clampedOffset = Math.max(0, Math.min(currentOffset, safeMaxRewindSeconds));
+  // Progress: 0 = oldest available point, 1 = live
+  const progress = 1 - clampedOffset / safeMaxRewindSeconds;
 
   const formatTime = (seconds: number): string => {
     const h = Math.floor(seconds / 3600);
@@ -57,10 +63,11 @@ export function DVRTimeline({
     const rect = trackRef.current.getBoundingClientRect();
     const x = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     // x=0 is 24h ago, x=1 is live
-    return Math.round((1 - x) * maxRewindSeconds);
-  }, [maxRewindSeconds]);
+    return Math.round((1 - x) * safeMaxRewindSeconds);
+  }, [safeMaxRewindSeconds]);
 
   const handlePointerDown = (e: React.PointerEvent) => {
+    if (disabled) return;
     e.preventDefault();
     setIsDragging(true);
     const offset = getOffsetFromPosition(e.clientX);
@@ -69,7 +76,7 @@ export function DVRTimeline({
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    if (!trackRef.current) return;
+    if (!trackRef.current || disabled) return;
     const rect = trackRef.current.getBoundingClientRect();
     setHoverX(e.clientX - rect.left);
     const offset = getOffsetFromPosition(e.clientX);
@@ -91,8 +98,9 @@ export function DVRTimeline({
 
   // Tick marks for hours
   const hourMarks = [];
-  for (let i = 1; i <= 23; i++) {
-    const x = (1 - i / 24) * 100;
+  const markCount = safeMaxRewindSeconds >= 3600 ? Math.min(23, Math.floor(safeMaxRewindSeconds / 3600)) : 0;
+  for (let i = 1; i <= markCount; i++) {
+    const x = (1 - (i * 3600) / safeMaxRewindSeconds) * 100;
     hourMarks.push(
       <div
         key={i}
@@ -115,13 +123,16 @@ export function DVRTimeline({
         {/* Time Display */}
         <div className="hidden md:flex items-center gap-1.5 text-[11px] text-white/50 min-w-[80px]">
           <Clock className="w-3 h-3" />
-          <span>{currentOffset > 0 ? `-${formatTime(currentOffset)}` : 'Jonli'}</span>
+          <span>{disabled ? unavailableLabel : clampedOffset > 0 ? `-${formatTime(clampedOffset)}` : 'Jonli'}</span>
         </div>
 
         {/* Track */}
         <div
           ref={trackRef}
-          className="flex-1 relative h-6 flex items-center cursor-pointer group"
+          className={cn(
+            "flex-1 relative h-6 flex items-center group",
+            disabled ? "cursor-not-allowed opacity-55" : "cursor-pointer"
+          )}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
@@ -137,7 +148,7 @@ export function DVRTimeline({
             <div
               className={cn(
                 "absolute left-0 top-0 h-full rounded-full transition-all",
-                isLive ? "bg-accent" : "bg-primary"
+                disabled ? "bg-white/20" : isLive ? "bg-accent" : "bg-primary"
               )}
               style={{ width: `${progress * 100}%` }}
             />
@@ -154,7 +165,7 @@ export function DVRTimeline({
               "absolute top-1/2 -translate-y-1/2 w-3 h-3 md:w-3.5 md:h-3.5 rounded-full shadow-lg transition-transform z-10",
               "scale-100 group-hover:scale-125",
               isDragging && "scale-150",
-              isLive ? "bg-accent" : "bg-primary"
+              disabled ? "bg-white/40" : isLive ? "bg-accent" : "bg-primary"
             )}
             style={{ left: `calc(${progress * 100}% - 6px)` }}
           />
@@ -174,17 +185,20 @@ export function DVRTimeline({
         <Button
           variant="ghost"
           size="sm"
-          onClick={onGoLive}
+          onClick={disabled ? undefined : onGoLive}
+          disabled={disabled}
           className={cn(
             "h-7 px-2.5 md:px-3 gap-1.5 rounded-full text-xs font-bold uppercase tracking-wider transition-all",
-            isLive
+            disabled
+              ? "bg-white/5 text-white/35 cursor-not-allowed"
+              : isLive
               ? "bg-accent/20 text-accent hover:bg-accent/30"
               : "bg-white/10 text-white/60 hover:bg-white/20 hover:text-white animate-pulse"
           )}
         >
           <span className={cn(
             "w-1.5 h-1.5 rounded-full",
-            isLive ? "bg-accent animate-pulse" : "bg-white/40"
+            disabled ? "bg-white/30" : isLive ? "bg-accent animate-pulse" : "bg-white/40"
           )} />
           <span className="hidden sm:inline">LIVE</span>
           <Radio className="w-3 h-3 sm:hidden" />

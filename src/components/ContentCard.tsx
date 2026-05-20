@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Play, Plus, Info, Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,11 @@ interface ContentCardProps {
 
 export function ContentCard({ content, index = 0, variant = 'default' }: ContentCardProps) {
   const [isHovered, setIsHovered] = useState(false);
+  const [imageFailed, setImageFailed] = useState(false);
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [content.thumbnail]);
 
   const cardSizes = {
     default: 'w-[160px] sm:w-[220px] md:w-[280px] lg:w-[320px]',
@@ -47,15 +52,23 @@ export function ContentCard({ content, index = 0, variant = 'default' }: Content
             isHovered && 'ring-2 ring-primary shadow-[0_0_30px_hsl(38,92%,50%,0.3)]'
           )}
         >
-          <img
-            src={content.thumbnail}
-            alt={content.title}
-            loading="lazy"
-            onError={(event) => {
-              event.currentTarget.src = '/placeholder.svg';
-            }}
-            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-          />
+          {imageFailed ? (
+            <div className="w-full h-full bg-gradient-to-br from-slate-950 via-slate-800 to-amber-500/80 p-4 flex flex-col justify-end">
+              <span className="text-[10px] uppercase tracking-[0.18em] text-primary font-bold">Alsamos TV</span>
+              <span className="mt-2 font-display text-lg sm:text-xl font-bold text-white leading-tight line-clamp-2">
+                {content.title}
+              </span>
+              <span className="mt-1 text-xs text-white/65">{content.genres.slice(0, 2).join(' / ') || "O'zbek kino"}</span>
+            </div>
+          ) : (
+            <img
+              src={content.thumbnail}
+              alt={content.title}
+              loading="lazy"
+              onError={() => setImageFailed(true)}
+              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+            />
+          )}
           
           {/* Gradient Overlay */}
           <div className="absolute inset-0 thumbnail-overlay opacity-0 group-hover:opacity-100 transition-opacity duration-300" />

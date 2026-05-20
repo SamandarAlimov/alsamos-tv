@@ -5,7 +5,7 @@ import {
   Minimize2, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
   Volume2, VolumeX, Maximize, PictureInPicture2, LayoutGrid,
   Signal, Wifi, Share2, Heart, Info, X, Search,
-  ShieldCheck, AlertTriangle, RotateCcw
+  AlertTriangle, RotateCcw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Navbar from '@/components/Navbar';
@@ -31,6 +31,9 @@ import { SourceFilter, ChannelSource } from '@/components/live/SourceFilter';
 import { getSyncedPlaybackPosition, getSyncedPlaybackPositionWithOffset } from '@/utils/playlistSync';
 import { rankedSearch } from '@/utils/search';
 import { getStreamCandidates, getStreamHealth } from '@/utils/streams';
+
+const DEFAULT_DVR_WINDOW_SECONDS = 24 * 60 * 60;
+const MIN_DVR_WINDOW_SECONDS = 20;
 
 function isBrowserPlayableChannel(channel: Channel | null | undefined, failedIds = new Set<string>(), strict = false) {
   if (!channel || failedIds.has(channel.id)) return false;
@@ -66,7 +69,6 @@ const LiveTV = () => {
   const [selectedSource, setSelectedSource] = useState<ChannelSource>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const deferredSearchQuery = useDeferredValue(searchQuery);
-  const [showPlayableOnly, setShowPlayableOnly] = useState(false);
   const [failedChannelIds, setFailedChannelIds] = useState<Set<string>>(new Set());
   const [playerRetryKey, setPlayerRetryKey] = useState(0);
   const [mobileTab, setMobileTab] = useState<'channels' | 'schedule'>('channels');
@@ -80,6 +82,8 @@ const LiveTV = () => {
   
   const [dvrOffset, setDvrOffset] = useState(0);
   const [isDvrLive, setIsDvrLive] = useState(true);
+  const [dvrMaxRewindSeconds, setDvrMaxRewindSeconds] = useState(DEFAULT_DVR_WINDOW_SECONDS);
+  const [hasDvrWindow, setHasDvrWindow] = useState(true);
 
   const sourceCounts = useMemo(() => ({
     all: channels.length,
@@ -95,22 +99,16 @@ const LiveTV = () => {
       : channels.filter(c => (c.source ?? 'alsamos') === selectedSource)
   ), [channels, selectedSource]);
 
-  const playableFiltered = useMemo(() => (
-    showPlayableOnly
-      ? sourceFiltered.filter((channel) => isBrowserPlayableChannel(channel, failedChannelIds, true))
-      : sourceFiltered
-  ), [failedChannelIds, showPlayableOnly, sourceFiltered]);
-
   const categories = useMemo(() => (
-    ['All', ...Array.from(new Set(playableFiltered.map(c => c.category).filter(Boolean) as string[]))]
-  ), [playableFiltered]);
+    ['All', ...Array.from(new Set(sourceFiltered.map(c => c.category).filter(Boolean) as string[]))]
+  ), [sourceFiltered]);
 
   const activeSearchQuery = deferredSearchQuery.trim();
 
   const filteredChannels = useMemo(() => {
     const base = activeSearchQuery
-      ? playableFiltered
-      : playableFiltered.filter(channel =>
+      ? sourceFiltered
+      : sourceFiltered.filter(channel =>
           selectedCategory === 'All' || channel.category === selectedCategory
         );
 
@@ -125,10 +123,10 @@ const LiveTV = () => {
           channel.stream_type,
         ])
       : base;
-  }, [activeSearchQuery, playableFiltered, selectedCategory]);
+  }, [activeSearchQuery, sourceFiltered, selectedCategory]);
 
   // Reset key triggers VirtualChannelList to reset visibleCount/page when filters change
-  const resetKey = `${selectedSource}|${selectedCategory}|${activeSearchQuery}|${showPlayableOnly}`;
+  const resetKey = `${selectedSource}|${selectedCategory}|${activeSearchQuery}`;
 
   useEffect(() => {
     if (channels.length === 0) return;
@@ -150,7 +148,7 @@ const LiveTV = () => {
 
   useEffect(() => {
     setSelectedCategory('All');
-  }, [selectedSource, showPlayableOnly]);
+  }, [selectedSource]);
 
   const currentProgram = selectedChannel ? getCurrentProgram(selectedChannel.id) : undefined;
   const channelSchedule = selectedChannel ? getChannelSchedule(selectedChannel.id) : [];
@@ -350,28 +348,117 @@ const LiveTV = () => {
     setIsPlaying(!isPlaying);
   };
 
+  const isPlaylistDvrChannel = selectedChannel?.stream_type === 'youtube_playlist' && !!selectedChannel.youtube_video_id;
+  const dvrTimelineMax = isPlaylistDvrChannel ? DEFAULT_DVR_WINDOW_SECONDS : Math.max(1, dvrMaxRewindSeconds);
+  const isDvrDisabled = !isPlaylistDvrChannel && !hasDvrWindow;
+
   const handleDvrSeek = useCallback((offsetSeconds: number) => {
-    setDvrOffset(offsetSeconds);
-    setIsDvrLive(offsetSeconds < 30);
-    if (!youtubePlayerRef.current || !selectedChannel) return;
-    if (selectedChannel.stream_type === 'youtube_playlist' && selectedChannel.youtube_video_id) {
-      const pos = getSyncedPlaybackPositionWithOffset(100, offsetSeconds);
+    if (!selectedChannel) return;
+    const maxOffset = selectedChannel.stream_type === 'youtube_playlist'
+      ? DEFAULT_DVR_WINDOW_SECONDS
+      : dvrMaxRewindSeconds;
+    const offset = Math.max(0, Math.min(offsetSeconds, Math.max(0, maxOffset)));
+
+    setDvrOffset(offset);
+    setIsDvrLive(offset < 10);
+
+    if (selectedChannel.stream_type === 'youtube_playlist' && selectedChannel.youtube_video_id && youtubePlayerRef.current) {
+      const pos = getSyncedPlaybackPositionWithOffset(100, offset);
       youtubePlayerRef.current.playVideoAt(pos.videoIndex);
       setTimeout(() => { youtubePlayerRef.current?.seekTo(pos.seekToSeconds, true); youtubePlayerRef.current?.playVideo(); }, 800);
+      return;
     }
-  }, [selectedChannel]);
+
+    const video = videoRef.current;
+    const ranges = video?.seekable;
+    if (!video || !ranges?.length) return;
+
+    const start = ranges.start(0);
+    const end = ranges.end(ranges.length - 1);
+    const target = Math.max(start, Math.min(end - 0.5, end - offset));
+    if (Number.isFinite(target)) {
+      video.currentTime = target;
+      video.play().catch(() => {});
+      setIsPlaying(true);
+    }
+  }, [dvrMaxRewindSeconds, selectedChannel]);
 
   const handleGoLive = useCallback(() => {
     setDvrOffset(0); setIsDvrLive(true);
-    if (!youtubePlayerRef.current || !selectedChannel) return;
-    if (selectedChannel.stream_type === 'youtube_playlist' && selectedChannel.youtube_video_id) {
+    if (!selectedChannel) return;
+    if (selectedChannel.stream_type === 'youtube_playlist' && selectedChannel.youtube_video_id && youtubePlayerRef.current) {
       const pos = getSyncedPlaybackPosition(100);
       youtubePlayerRef.current.playVideoAt(pos.videoIndex);
       setTimeout(() => { youtubePlayerRef.current?.seekTo(pos.seekToSeconds, true); youtubePlayerRef.current?.playVideo(); }, 800);
+      return;
+    }
+
+    const video = videoRef.current;
+    const ranges = video?.seekable;
+    if (video && ranges?.length) {
+      const liveEdge = ranges.end(ranges.length - 1);
+      if (Number.isFinite(liveEdge)) {
+        video.currentTime = Math.max(ranges.start(0), liveEdge - 0.5);
+        video.play().catch(() => {});
+        setIsPlaying(true);
+      }
     }
   }, [selectedChannel]);
 
-  useEffect(() => { setDvrOffset(0); setIsDvrLive(true); }, [selectedChannel?.id]);
+  useEffect(() => {
+    setDvrOffset(0);
+    setIsDvrLive(true);
+    setDvrMaxRewindSeconds(
+      selectedChannel?.stream_type === 'youtube_playlist' ? DEFAULT_DVR_WINDOW_SECONDS : 1
+    );
+    setHasDvrWindow(selectedChannel?.stream_type === 'youtube_playlist');
+  }, [selectedChannel?.id, selectedChannel?.stream_type]);
+
+  useEffect(() => {
+    if (selectedChannel?.stream_type === 'youtube_playlist') {
+      setDvrMaxRewindSeconds(DEFAULT_DVR_WINDOW_SECONDS);
+      setHasDvrWindow(true);
+      return;
+    }
+
+    if (!selectedChannel?.stream_url) {
+      setDvrMaxRewindSeconds(1);
+      setHasDvrWindow(false);
+      return;
+    }
+
+    const updateSeekWindow = () => {
+      const video = videoRef.current;
+      const ranges = video?.seekable;
+
+      if (!video || !ranges?.length) {
+        setDvrMaxRewindSeconds(1);
+        setHasDvrWindow(false);
+        return;
+      }
+
+      const start = ranges.start(0);
+      const end = ranges.end(ranges.length - 1);
+      const windowSeconds = Math.max(0, Math.floor(end - start));
+      const hasWindow = windowSeconds >= MIN_DVR_WINDOW_SECONDS;
+
+      setDvrMaxRewindSeconds(Math.max(1, windowSeconds));
+      setHasDvrWindow(hasWindow);
+
+      if (!hasWindow) {
+        setDvrOffset(0);
+        setIsDvrLive(true);
+        return;
+      }
+
+      const liveOffset = Math.max(0, Math.floor(end - video.currentTime));
+      setDvrOffset((current) => isDvrLive ? 0 : Math.min(current || liveOffset, windowSeconds));
+    };
+
+    updateSeekWindow();
+    const interval = window.setInterval(updateSeekWindow, 2500);
+    return () => window.clearInterval(interval);
+  }, [isDvrLive, selectedChannel?.stream_type, selectedChannel?.stream_url]);
 
   // Progress for current program
   const programProgress = currentProgram ? Math.min(100, Math.max(0,
@@ -392,10 +479,6 @@ const LiveTV = () => {
       forceHls: selectedChannel?.stream_type === 'hls',
     }),
     [selectedChannel?.http_referrer, selectedChannel?.http_user_agent, selectedChannel?.source, selectedChannel?.stream_type, selectedChannel?.stream_url]
-  );
-  const playableCount = useMemo(
-    () => channels.filter((channel) => isBrowserPlayableChannel(channel, failedChannelIds, true)).length,
-    [channels, failedChannelIds]
   );
 
   if (loading) {
@@ -497,9 +580,6 @@ const LiveTV = () => {
                       >
                         <RotateCcw className="w-4 h-4" />
                         Qayta urinish
-                      </Button>
-                      <Button variant="glass" size="sm" onClick={() => setShowPlayableOnly(false)}>
-                        Barchasini ko'rsatish
                       </Button>
                     </div>
                   </div>
@@ -603,7 +683,15 @@ const LiveTV = () => {
                         </div>
                       </div>
 
-                      <DVRTimeline currentOffset={dvrOffset} onSeek={handleDvrSeek} onGoLive={handleGoLive} isLive={isDvrLive} className="mb-2 md:mb-3" />
+                      <DVRTimeline
+                        currentOffset={dvrOffset}
+                        maxRewindSeconds={dvrTimelineMax}
+                        onSeek={handleDvrSeek}
+                        onGoLive={handleGoLive}
+                        isLive={isDvrLive}
+                        disabled={isDvrDisabled}
+                        className="mb-2 md:mb-3"
+                      />
 
                       {/* Control Bar - Mobile optimized */}
                       <div className="flex items-center justify-between gap-1">
@@ -802,20 +890,6 @@ const LiveTV = () => {
                         />
                       </div>
                       <SourceFilter selected={selectedSource} onSelect={setSelectedSource} counts={sourceCounts} />
-                      <button
-                        type="button"
-                        onClick={() => setShowPlayableOnly((value) => !value)}
-                        className={cn(
-                          "w-full flex items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold transition-all",
-                          showPlayableOnly ? "bg-primary/15 text-primary ring-1 ring-primary/20" : "glass-subtle text-muted-foreground"
-                        )}
-                      >
-                        <span className="flex items-center gap-2">
-                          <ShieldCheck className="w-3.5 h-3.5" />
-                          Faqat ishlaydigan kanallar
-                        </span>
-                        <span className="font-mono text-[10px]">{playableCount}/{channels.length}</span>
-                      </button>
                       <CategoryFilter categories={categories} selected={selectedCategory} onSelect={setSelectedCategory} />
                     </div>
 
@@ -944,20 +1018,6 @@ const LiveTV = () => {
                   className="pl-9 h-9 glass-subtle border-white/5 text-sm" />
               </div>
               <SourceFilter selected={selectedSource} onSelect={setSelectedSource} counts={sourceCounts} />
-              <button
-                type="button"
-                onClick={() => setShowPlayableOnly((value) => !value)}
-                className={cn(
-                  "flex items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold transition-all",
-                  showPlayableOnly ? "bg-primary/15 text-primary ring-1 ring-primary/20" : "glass-subtle text-muted-foreground hover:text-foreground"
-                )}
-              >
-                <span className="flex items-center gap-2">
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                  Faqat ishlaydiganlar
-                </span>
-                <span className="font-mono text-[10px]">{playableCount}/{channels.length}</span>
-              </button>
               <div className="overflow-x-auto scrollbar-hide">
                 <CategoryFilter categories={categories} selected={selectedCategory} onSelect={setSelectedCategory} />
               </div>

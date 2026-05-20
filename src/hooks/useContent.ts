@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { fallbackContent } from '@/data/fallbackContent';
-import { rankedSearch } from '@/utils/search';
+import { rankedSearch, normalizeSearchText } from '@/utils/search';
+import { useShamsMovies } from './useShamsMovies';
 
 export interface ContentItem {
   id: string;
@@ -35,13 +36,102 @@ function formatDuration(seconds: number | null): string {
   return `${minutes}m`;
 }
 
+function getYouTubeId(value: string | null | undefined) {
+  if (!value) return null;
+  try {
+    const parsed = new URL(value);
+    const host = parsed.hostname.replace(/^www\./, '');
+    if (host === 'youtu.be') return parsed.pathname.split('/').filter(Boolean)[0] || null;
+    if (host.includes('youtube.com')) {
+      const parts = parsed.pathname.split('/').filter(Boolean);
+      return parsed.searchParams.get('v') || (['embed', 'shorts', 'live'].includes(parts[0]) ? parts[1] : null);
+    }
+    if (host.includes('ytimg.com')) {
+      const parts = parsed.pathname.split('/').filter(Boolean);
+      const viIndex = parts.findIndex((part) => part === 'vi');
+      return viIndex >= 0 ? parts[viIndex + 1] || null : null;
+    }
+  } catch {
+    const match = value.match(/(?:v=|youtu\.be\/|embed\/|shorts\/|live\/|\/vi\/)([A-Za-z0-9_-]{10,})/);
+    return match?.[1] || null;
+  }
+  return null;
+}
+
+function youtubeImage(videoId: string, quality: 'hqdefault' | 'sddefault') {
+  return `https://i.ytimg.com/vi/${videoId}/${quality}.jpg`;
+}
+
+function titleArtwork(title: string, wide = false) {
+  const escapedTitle = title
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  const width = wide ? 1280 : 640;
+  const height = wide ? 720 : 360;
+  const fontSize = wide ? 82 : 44;
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+      <defs>
+        <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#101827"/>
+          <stop offset="0.48" stop-color="#1f2937"/>
+          <stop offset="1" stop-color="#f59e0b"/>
+        </linearGradient>
+        <radialGradient id="glow" cx="72%" cy="22%" r="52%">
+          <stop offset="0" stop-color="#fbbf24" stop-opacity="0.72"/>
+          <stop offset="1" stop-color="#020617" stop-opacity="0"/>
+        </radialGradient>
+      </defs>
+      <rect width="100%" height="100%" fill="url(#bg)"/>
+      <rect width="100%" height="100%" fill="url(#glow)"/>
+      <rect x="34" y="34" width="${width - 68}" height="${height - 68}" rx="28" fill="none" stroke="rgba(255,255,255,0.22)" stroke-width="2"/>
+      <text x="52" y="74" fill="#fbbf24" font-family="Arial, sans-serif" font-size="24" font-weight="700">ALSAMOS TV</text>
+      <text x="52" y="${height - 102}" fill="#ffffff" font-family="Arial, sans-serif" font-size="${fontSize}" font-weight="800">${escapedTitle}</text>
+      <text x="52" y="${height - 56}" fill="rgba(255,255,255,0.72)" font-family="Arial, sans-serif" font-size="24">O'zbek kino</text>
+    </svg>
+  `;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+}
+
+function normalizeContentImages(row: any, title: string) {
+  const videoId = getYouTubeId(row.thumbnail_url) || getYouTubeId(row.backdrop_url) || getYouTubeId(row.video_url);
+  const brokenYouTubeIds = new Set(['3rR3Yk1BQDY', '0Z6QkqGq6Ks']);
+
+  if (videoId && brokenYouTubeIds.has(videoId)) {
+    return {
+      thumbnail: titleArtwork(title),
+      backdrop: titleArtwork(title, true),
+    };
+  }
+
+  if (videoId) {
+    return {
+      thumbnail: youtubeImage(videoId, 'hqdefault'),
+      backdrop: youtubeImage(videoId, 'sddefault'),
+    };
+  }
+
+  return {
+    thumbnail: row.thumbnail_url || titleArtwork(title),
+    backdrop: row.backdrop_url || row.thumbnail_url || titleArtwork(title, true),
+  };
+}
+
 function mapDbToContent(row: any): ContentItem {
+  const videoId = getYouTubeId(row.video_url) || getYouTubeId(row.thumbnail_url) || getYouTubeId(row.backdrop_url);
+  const shouldRenameSotqin = normalizeSearchText(row.title) === 'otam' && videoId === '7XrD7KN1Zpk';
+  const title = shouldRenameSotqin ? 'Sotqin' : row.title;
+  const images = normalizeContentImages(row, title);
+
   return {
     id: row.id,
-    title: row.title,
-    description: row.description || '',
-    thumbnail: row.thumbnail_url || '/placeholder.svg',
-    backdrop: row.backdrop_url || row.thumbnail_url || '/placeholder.svg',
+    title,
+    description: shouldRenameSotqin
+      ? "Ishonch, xiyonat va oilaviy qadriyatlar haqida ta'sirli o'zbek filmi."
+      : row.description || '',
+    thumbnail: images.thumbnail,
+    backdrop: images.backdrop,
     trailer: row.trailer_url || undefined,
     year: row.release_year || new Date().getFullYear(),
     rating: row.rating || 'NR',
@@ -60,9 +150,26 @@ function mapDbToContent(row: any): ContentItem {
   };
 }
 
+function mergeContent(groups: ContentItem[][]) {
+  const seenIds = new Set<string>();
+  const seenTitles = new Set<string>();
+  const merged: ContentItem[] = [];
+
+  for (const item of groups.flat()) {
+    const titleKey = normalizeSearchText(item.title);
+    if (seenIds.has(item.id) || (titleKey && seenTitles.has(titleKey))) continue;
+    seenIds.add(item.id);
+    if (titleKey) seenTitles.add(titleKey);
+    merged.push(item);
+  }
+
+  return merged;
+}
+
 export function useContent() {
-  const [allContent, setAllContent] = useState<ContentItem[]>([]);
+  const [dbContent, setDbContent] = useState<ContentItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const { shamsMovies } = useShamsMovies();
 
   useEffect(() => {
     const fetchContent = async () => {
@@ -74,19 +181,15 @@ export function useContent() {
 
         if (data) {
           const mapped = data.map(mapDbToContent);
-          const existingIds = new Set(mapped.map((item) => item.id));
-          setAllContent([
-            ...mapped,
-            ...fallbackContent.filter((item) => !existingIds.has(item.id)),
-          ]);
+          setDbContent(mapped);
         }
         if (error) {
           console.error('Error fetching content:', error);
-          setAllContent(fallbackContent);
+          setDbContent([]);
         }
       } catch (error) {
         console.error('Error fetching content:', error);
-        setAllContent(fallbackContent);
+        setDbContent([]);
       } finally {
         setLoading(false);
       }
@@ -94,6 +197,11 @@ export function useContent() {
 
     fetchContent();
   }, []);
+
+  const allContent = useMemo(
+    () => mergeContent([dbContent, shamsMovies, fallbackContent]),
+    [dbContent, shamsMovies]
+  );
 
   const featured = allContent.find(c => c.isTrending || c.isOriginal) || allContent[0] || null;
   const trending = allContent.filter(c => c.isTrending);

@@ -40,6 +40,7 @@ function isBrowserPlayableChannel(channel: Channel | null | undefined, failedIds
   const hasFallback = getStreamCandidates(channel.stream_url, {
     referer: channel.http_referrer,
     userAgent: channel.http_user_agent,
+    proxyOnly: true,
   }).length > 0;
   if (channel.embed_allowed === false && !hasFallback) return false;
   if (strict) return (health !== 'unsupported' && health !== 'mixed-content') || hasFallback;
@@ -311,6 +312,7 @@ const LiveTV = () => {
     () => getStreamCandidates(selectedChannel?.stream_url, {
       referer: selectedChannel?.http_referrer,
       userAgent: selectedChannel?.http_user_agent,
+      proxyOnly: true,
     }),
     [selectedChannel?.http_referrer, selectedChannel?.http_user_agent, selectedChannel?.stream_url]
   );

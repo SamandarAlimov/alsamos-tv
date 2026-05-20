@@ -3,6 +3,7 @@ export type StreamHealth = 'ready' | 'mixed-content' | 'unsupported' | 'unknown'
 export interface StreamRequestOptions {
   referer?: string | null;
   userAgent?: string | null;
+  proxyOnly?: boolean;
 }
 
 const STREAM_PROXIES = [
@@ -84,10 +85,17 @@ export function getStreamCandidates(url: string | null | undefined, options: Str
 
   const preferred = getPreferredStreamUrl(url);
   const proxyTargets = unique([url, upgraded]);
-
-  return unique([
+  const localProxyCandidates = unique([
     getLocalStreamProxyUrl(url, options),
     upgraded ? getLocalStreamProxyUrl(upgraded, options) : null,
+  ]);
+
+  if (options.proxyOnly && localProxyCandidates.length > 0) {
+    return localProxyCandidates;
+  }
+
+  return unique([
+    ...localProxyCandidates,
     preferred,
     upgraded,
     isMixedContentUrl(url) ? null : url,

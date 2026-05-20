@@ -103,7 +103,7 @@ export const HLSPlayer = forwardRef<HTMLVideoElement, HLSPlayerProps>(
     const [sourceIndex, setSourceIndex] = useState(0);
 
     const candidates = useMemo(() => {
-      const list = srcs?.length ? srcs : getStreamCandidates(src, { referer: referrer, userAgent });
+      const list = srcs?.length ? srcs : getStreamCandidates(src, { referer: referrer, userAgent, proxyOnly: true });
       return list.length ? list : [src];
     }, [referrer, src, srcs, userAgent]);
 
@@ -119,6 +119,9 @@ export const HLSPlayer = forwardRef<HTMLVideoElement, HLSPlayerProps>(
       const video = videoRef.current;
       if (!video || !activeSrc) return;
       recoveryAttemptsRef.current = 0;
+      video.muted = muted;
+      video.autoplay = autoPlay;
+      video.playsInline = true;
 
       const cleanupPlayers = () => {
         if (hlsRef.current) {
@@ -154,6 +157,7 @@ export const HLSPlayer = forwardRef<HTMLVideoElement, HLSPlayerProps>(
       };
 
       const handleVideoError = () => {
+        if (hlsRef.current) return;
         if (nativeErrorTimerRef.current) clearTimeout(nativeErrorTimerRef.current);
         nativeErrorTimerRef.current = setTimeout(tryNextSource, 2500);
       };
@@ -166,6 +170,7 @@ export const HLSPlayer = forwardRef<HTMLVideoElement, HLSPlayerProps>(
         if (video.readyState >= 2 && startupWatchdogRef.current) {
           clearTimeout(startupWatchdogRef.current);
         }
+        if (autoPlay && video.paused) video.play().catch(() => {});
       };
       cleanupPlayers();
       video.addEventListener('error', handleVideoError);
@@ -269,7 +274,7 @@ export const HLSPlayer = forwardRef<HTMLVideoElement, HLSPlayerProps>(
         video.removeEventListener('canplay', handleReady);
         cleanupPlayers();
       };
-    }, [activeSrc, autoPlay, candidates.length, onError, onRecovering, sourceIndex, streamType]);
+    }, [activeSrc, autoPlay, candidates.length, muted, onError, onRecovering, sourceIndex, streamType]);
 
     return (
       <video

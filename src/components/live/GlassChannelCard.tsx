@@ -1,5 +1,5 @@
-import { motion } from 'framer-motion';
-import { AlertTriangle, Play, Radio } from 'lucide-react';
+import { memo, useCallback } from 'react';
+import { AlertTriangle, Play } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Channel, Schedule } from '@/hooks/useChannels';
 
@@ -9,12 +9,13 @@ interface GlassChannelCardProps {
   isSelected: boolean;
   currentProgram?: Schedule;
   compact?: boolean;
-  onClick: () => void;
+  onSelect: (channel: Channel) => void;
 }
 
-export function GlassChannelCard({ 
-  channel, index, isSelected, currentProgram, compact, onClick 
+function GlassChannelCardBase({
+  channel, index, isSelected, currentProgram, compact, onSelect
 }: GlassChannelCardProps) {
+  const handleClick = useCallback(() => onSelect(channel), [channel, onSelect]);
   const progress = currentProgram ? Math.min(100, Math.max(0, 
     ((Date.now() - new Date(currentProgram.start_time).getTime()) / 
     (new Date(currentProgram.end_time).getTime() - new Date(currentProgram.start_time).getTime())) * 100
@@ -22,11 +23,8 @@ export function GlassChannelCard({
   const hasStreamWarning = channel.stream_health === 'mixed-content' || channel.stream_health === 'unsupported';
 
   return (
-    <motion.button
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.02 }}
-      onClick={onClick}
+    <button
+      onClick={handleClick}
       className={cn(
         "w-full text-left rounded-2xl transition-all duration-300 relative overflow-hidden group",
         compact ? "p-2.5" : "p-3",
@@ -95,13 +93,9 @@ export function GlassChannelCard({
         </div>
         
         {isSelected && (
-          <motion.div 
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            className="w-8 h-8 rounded-full bg-primary/90 flex items-center justify-center flex-shrink-0 shadow-lg shadow-primary/20"
-          >
+          <div className="w-8 h-8 rounded-full bg-primary/90 flex items-center justify-center flex-shrink-0 shadow-lg shadow-primary/20">
             <Play className="w-3.5 h-3.5 text-primary-foreground fill-current ml-0.5" />
-          </motion.div>
+          </div>
         )}
       </div>
 
@@ -109,14 +103,15 @@ export function GlassChannelCard({
       {currentProgram && isSelected && (
         <div className="mt-2.5 ml-7 mr-1">
           <div className="h-1 rounded-full overflow-hidden bg-white/5">
-            <motion.div 
-              initial={{ width: 0 }} 
-              animate={{ width: `${progress}%` }}
+            <div
+              style={{ width: `${progress}%` }}
               className="h-full bg-gradient-to-r from-primary to-primary/70 rounded-full"
             />
           </div>
         </div>
       )}
-    </motion.button>
+    </button>
   );
 }
+
+export const GlassChannelCard = memo(GlassChannelCardBase);

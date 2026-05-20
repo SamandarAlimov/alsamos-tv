@@ -51,6 +51,8 @@ export function VirtualChannelList({
     estimateSize: () => rowHeight,
     overscan: 8,
   });
+  const virtualItems = virtualizer.getVirtualItems();
+  const lastVirtualIndex = virtualItems[virtualItems.length - 1]?.index;
 
   // Trigger next chunk when sentinel comes into view
   const loadMore = useCallback(() => {
@@ -74,11 +76,9 @@ export function VirtualChannelList({
 
   // Observe sentinel via virtualizer items
   useEffect(() => {
-    const vItems = virtualizer.getVirtualItems();
-    const last = vItems[vItems.length - 1];
-    if (!last) return;
-    if (hasMore && last.index >= items.length) loadMore();
-  }, [virtualizer.getVirtualItems(), hasMore, items.length, loadMore]);
+    if (typeof lastVirtualIndex !== 'number') return;
+    if (hasMore && lastVirtualIndex >= items.length) loadMore();
+  }, [lastVirtualIndex, hasMore, items.length, loadMore]);
 
   const goToPage = (p: number) => {
     const np = Math.min(Math.max(1, p), totalPages);
@@ -144,7 +144,7 @@ export function VirtualChannelList({
             position: 'relative',
           }}
         >
-          {virtualizer.getVirtualItems().map(vRow => {
+          {virtualItems.map(vRow => {
             const isSentinel = vRow.index >= items.length;
             const ch = items[vRow.index];
             return (
@@ -177,7 +177,7 @@ export function VirtualChannelList({
                     isSelected={selectedChannelId === ch.id}
                     currentProgram={getCurrentProgram(ch.id)}
                     compact={compact}
-                    onClick={() => onSelect(ch)}
+                    onSelect={onSelect}
                   />
                 ) : null}
               </div>

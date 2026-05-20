@@ -16,6 +16,9 @@ export function getSearchTokens(query: string) {
   const synonyms: Record<string, string[]> = {
     ozbek: ['uzbek', 'uzbekiston', 'o zbek', 'uz'],
     uzbek: ['ozbek', 'uzbekiston', 'uz'],
+    ozbekiston: ['uzbekiston', 'uzbekistan', 'ozbek', 'uz'],
+    uzbekiston: ['ozbekiston', 'uzbekistan', 'uzbek', 'uz'],
+    uzbekistan: ['ozbekiston', 'uzbekiston', 'uzbek', 'uz'],
     kino: ['movie', 'film', 'movies'],
     movie: ['kino', 'film'],
     live: ['jonli', 'efir', 'tv'],
@@ -46,9 +49,25 @@ function tokenScore(haystack: string, token: string) {
   return 0;
 }
 
-export function scoreSearchMatch(fields: Array<string | null | undefined>, query: string) {
-  const tokens = getSearchTokens(query);
-  if (tokens.length === 0) return 0;
+type PreparedSearchQuery = {
+  requiredCount: number;
+  variants: string[][];
+};
+
+function prepareSearchQuery(query: string): PreparedSearchQuery {
+  const rawTokens = normalizeSearchText(query).split(' ').filter(Boolean);
+
+  return {
+    requiredCount: rawTokens.length,
+    variants: rawTokens.map((rawToken) => {
+      const variants = [rawToken, ...getSearchTokens(rawToken).filter((t) => t !== rawToken)];
+      return Array.from(new Set(variants));
+    }),
+  };
+}
+
+function scorePreparedSearchMatch(fields: Array<string | null | undefined>, prepared: PreparedSearchQuery) {
+  if (prepared.requiredCount === 0) return 0;
 
   const haystack = normalizeSearchText(fields.filter(Boolean).join(' '));
   if (!haystack) return 0;
@@ -56,15 +75,17 @@ export function scoreSearchMatch(fields: Array<string | null | undefined>, query
   let matchedRequired = 0;
   let score = 0;
 
-  for (const rawToken of normalizeSearchText(query).split(' ').filter(Boolean)) {
-    const variants = [rawToken, ...getSearchTokens(rawToken).filter((t) => t !== rawToken)];
+  for (const variants of prepared.variants) {
     const best = Math.max(...variants.map((token) => tokenScore(haystack, token)));
     if (best > 0) matchedRequired += 1;
     score += best;
   }
 
-  const requiredCount = normalizeSearchText(query).split(' ').filter(Boolean).length;
-  return matchedRequired === requiredCount ? score : 0;
+  return matchedRequired === prepared.requiredCount ? score : 0;
+}
+
+export function scoreSearchMatch(fields: Array<string | null | undefined>, query: string) {
+  return scorePreparedSearchMatch(fields, prepareSearchQuery(query));
 }
 
 export function rankedSearch<T>(
@@ -72,10 +93,11 @@ export function rankedSearch<T>(
   query: string,
   getFields: (item: T) => Array<string | null | undefined>,
 ) {
-  if (!query.trim()) return items;
+  const prepared = prepareSearchQuery(query);
+  if (prepared.requiredCount === 0) return items;
 
   return items
-    .map((item) => ({ item, score: scoreSearchMatch(getFields(item), query) }))
+    .map((item) => ({ item, score: scorePreparedSearchMatch(getFields(item), prepared) }))
     .filter((entry) => entry.score > 0)
     .sort((a, b) => b.score - a.score)
     .map((entry) => entry.item);

@@ -100,6 +100,8 @@ export const HLSPlayer = forwardRef<HTMLVideoElement, HLSPlayerProps>(
     const nativeErrorTimerRef = useRef<ReturnType<typeof setTimeout>>();
     const retryTimerRef = useRef<ReturnType<typeof setTimeout>>();
     const startupWatchdogRef = useRef<ReturnType<typeof setTimeout>>();
+    const onErrorRef = useRef(onError);
+    const onRecoveringRef = useRef(onRecovering);
     const [sourceIndex, setSourceIndex] = useState(0);
 
     const candidates = useMemo(() => {
@@ -112,6 +114,15 @@ export const HLSPlayer = forwardRef<HTMLVideoElement, HLSPlayerProps>(
     useImperativeHandle(ref, () => videoRef.current as HTMLVideoElement, []);
 
     useEffect(() => {
+      onErrorRef.current = onError;
+      onRecoveringRef.current = onRecovering;
+    }, [onError, onRecovering]);
+
+    useEffect(() => {
+      if (videoRef.current) videoRef.current.muted = muted;
+    }, [muted]);
+
+    useEffect(() => {
       setSourceIndex(0);
     }, [src, srcs]);
 
@@ -119,7 +130,6 @@ export const HLSPlayer = forwardRef<HTMLVideoElement, HLSPlayerProps>(
       const video = videoRef.current;
       if (!video || !activeSrc) return;
       recoveryAttemptsRef.current = 0;
-      video.muted = muted;
       video.autoplay = autoPlay;
       video.playsInline = true;
 
@@ -146,14 +156,14 @@ export const HLSPlayer = forwardRef<HTMLVideoElement, HLSPlayerProps>(
         if (startupWatchdogRef.current) clearTimeout(startupWatchdogRef.current);
 
         if (sourceIndex < candidates.length - 1) {
-          onRecovering?.();
+          onRecoveringRef.current?.();
           retryTimerRef.current = setTimeout(() => {
             setSourceIndex((value) => Math.min(value + 1, candidates.length - 1));
           }, 600);
           return;
         }
 
-        onError?.();
+        onErrorRef.current?.();
       };
 
       const handleVideoError = () => {
@@ -274,7 +284,7 @@ export const HLSPlayer = forwardRef<HTMLVideoElement, HLSPlayerProps>(
         video.removeEventListener('canplay', handleReady);
         cleanupPlayers();
       };
-    }, [activeSrc, autoPlay, candidates.length, muted, onError, onRecovering, sourceIndex, streamType]);
+    }, [activeSrc, autoPlay, candidates.length, sourceIndex, streamType]);
 
     return (
       <video

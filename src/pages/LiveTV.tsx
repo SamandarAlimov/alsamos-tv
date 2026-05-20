@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useDeferredValue, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Radio, Users, Play, Pause, Clock, Grid3X3, Tv,
@@ -64,6 +64,7 @@ const LiveTV = () => {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedSource, setSelectedSource] = useState<ChannelSource>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const deferredSearchQuery = useDeferredValue(searchQuery);
   const [showPlayableOnly, setShowPlayableOnly] = useState(false);
   const [failedChannelIds, setFailedChannelIds] = useState<Set<string>>(new Set());
   const [mobileTab, setMobileTab] = useState<'channels' | 'schedule'>('channels');
@@ -71,6 +72,9 @@ const LiveTV = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const youtubePlayerRef = useRef<YTPlayer | null>(null);
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const showControlsRef = useRef(showControls);
+  const isPlayingRef = useRef(isPlaying);
+  const lastControlsMoveRef = useRef(0);
   
   const [dvrOffset, setDvrOffset] = useState(0);
   const [isDvrLive, setIsDvrLive] = useState(true);
@@ -99,24 +103,30 @@ const LiveTV = () => {
     ['All', ...Array.from(new Set(playableFiltered.map(c => c.category).filter(Boolean) as string[]))]
   ), [playableFiltered]);
 
-  const filteredChannels = useMemo(() => {
-    const categoryFiltered = playableFiltered.filter(channel =>
-      selectedCategory === 'All' || channel.category === selectedCategory
-    );
+  const activeSearchQuery = deferredSearchQuery.trim();
 
-    return searchQuery.trim()
-      ? rankedSearch(categoryFiltered, searchQuery, (channel) => [
+  const filteredChannels = useMemo(() => {
+    const base = activeSearchQuery
+      ? playableFiltered
+      : playableFiltered.filter(channel =>
+          selectedCategory === 'All' || channel.category === selectedCategory
+        );
+
+    return activeSearchQuery
+      ? rankedSearch(base, activeSearchQuery, (channel) => [
           channel.name,
+          channel.id,
           channel.description,
           channel.category,
           channel.current_program,
           channel.source,
+          channel.stream_type,
         ])
-      : categoryFiltered;
-  }, [playableFiltered, selectedCategory, searchQuery]);
+      : base;
+  }, [activeSearchQuery, playableFiltered, selectedCategory]);
 
   // Reset key triggers VirtualChannelList to reset visibleCount/page when filters change
-  const resetKey = `${selectedSource}|${selectedCategory}|${searchQuery}|${showPlayableOnly}`;
+  const resetKey = `${selectedSource}|${selectedCategory}|${activeSearchQuery}|${showPlayableOnly}`;
 
   useEffect(() => {
     if (channels.length === 0) return;
@@ -150,13 +160,53 @@ const LiveTV = () => {
     return num.toString();
   };
 
-  const handleMouseMove = () => {
-    setShowControls(true);
+  useEffect(() => {
+    showControlsRef.current = showControls;
+  }, [showControls]);
+
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
+
+  useEffect(() => () => {
+    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+  }, []);
+
+  const scheduleControlsHide = useCallback((delay = 3000) => {
     if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
     controlsTimeoutRef.current = setTimeout(() => {
-      if (isPlaying) setShowControls(false);
-    }, 3000);
-  };
+      if (!isPlayingRef.current) return;
+      showControlsRef.current = false;
+      setShowControls(false);
+    }, delay);
+  }, []);
+
+  const revealControls = useCallback((delay = 3000, forceTimer = false) => {
+    if (!showControlsRef.current) {
+      showControlsRef.current = true;
+      setShowControls(true);
+    }
+
+    const now = performance.now();
+    if (forceTimer || now - lastControlsMoveRef.current > 250) {
+      lastControlsMoveRef.current = now;
+      scheduleControlsHide(delay);
+    }
+  }, [scheduleControlsHide]);
+
+  const handleMouseMove = useCallback(() => {
+    revealControls(3000);
+  }, [revealControls]);
+
+  const handlePlayerMouseLeave = useCallback(() => {
+    if (!isPlayingRef.current) return;
+    showControlsRef.current = false;
+    setShowControls(false);
+  }, []);
+
+  const handlePlayerTouchStart = useCallback(() => {
+    revealControls(4000, true);
+  }, [revealControls]);
 
   const toggleMute = () => {
     if (youtubePlayerRef.current) {
@@ -199,6 +249,10 @@ const LiveTV = () => {
       setSelectedChannel(nextChannel);
     }
   }, [failedChannelIds, findNextPlayableChannel, selectedChannel]);
+
+  const handlePlayerRecovering = useCallback(() => {
+    revealControls(3000, true);
+  }, [revealControls]);
 
   const enterPiP = async () => {
     if (videoRef.current && document.pictureInPictureEnabled) {
@@ -265,10 +319,10 @@ const LiveTV = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPlaying, isMuted, volume, currentIndex, channels.length, selectedChannel?.id]);
 
-  const handleChannelSelect = (channel: Channel) => {
+  const handleChannelSelect = useCallback((channel: Channel) => {
     setSelectedChannel(channel);
     if (showMiniPlayer && miniPlayerChannel?.id === channel.id) { setShowMiniPlayer(false); setMiniPlayerChannel(null); }
-  };
+  }, [miniPlayerChannel?.id, showMiniPlayer]);
 
   const togglePlay = () => {
     if (videoRef.current) { isPlaying ? videoRef.current.pause() : videoRef.current.play(); }
@@ -316,7 +370,10 @@ const LiveTV = () => {
     }),
     [selectedChannel?.http_referrer, selectedChannel?.http_user_agent, selectedChannel?.stream_url]
   );
-  const playableCount = channels.filter((channel) => isBrowserPlayableChannel(channel, failedChannelIds, true)).length;
+  const playableCount = useMemo(
+    () => channels.filter((channel) => isBrowserPlayableChannel(channel, failedChannelIds, true)).length,
+    [channels, failedChannelIds]
+  );
 
   if (loading) {
     return (
@@ -359,8 +416,8 @@ const LiveTV = () => {
                 isTheaterMode ? "aspect-video max-h-[85vh]" : "aspect-video lg:aspect-auto lg:h-[calc(100vh-200px)] lg:min-h-[400px]"
               )}
               onMouseMove={handleMouseMove}
-              onMouseLeave={() => isPlaying && setShowControls(false)}
-              onTouchStart={() => { setShowControls(true); if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current); controlsTimeoutRef.current = setTimeout(() => { if (isPlaying) setShowControls(false); }, 4000); }}
+              onMouseLeave={handlePlayerMouseLeave}
+              onTouchStart={handlePlayerTouchStart}
             >
               {/* Video Source */}
               {canPlaySelected && (selectedChannel?.youtube_video_id || selectedChannel?.stream_type === 'youtube_playlist') ? (
@@ -391,7 +448,7 @@ const LiveTV = () => {
                   referrer={selectedChannel.http_referrer || undefined}
                   userAgent={selectedChannel.http_user_agent || undefined}
                   streamType={selectedChannel.stream_type}
-                  onRecovering={() => setShowControls(true)}
+                  onRecovering={handlePlayerRecovering}
                   onError={handleStreamError}
                 />
               ) : selectedChannel ? (

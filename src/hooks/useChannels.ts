@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useIPTVChannels } from './useIPTVChannels';
 import { useShamsChannels } from './useShamsChannels';
@@ -133,29 +133,45 @@ export function useChannels() {
     };
   }, []);
 
-  const getCurrentProgram = (channelId: string) => {
-    const now = new Date();
-    return schedules.find(
-      s => s.channel_id === channelId && 
-      new Date(s.start_time) <= now && 
-      new Date(s.end_time) >= now
-    );
-  };
+  const currentProgramsByChannel = useMemo(() => {
+    const now = Date.now();
+    const map = new Map<string, Schedule>();
+    for (const schedule of schedules) {
+      const start = new Date(schedule.start_time).getTime();
+      const end = new Date(schedule.end_time).getTime();
+      if (start <= now && end >= now) map.set(schedule.channel_id, schedule);
+    }
+    return map;
+  }, [schedules]);
 
-  const getUpcomingPrograms = (channelId: string, limit = 3) => {
-    const now = new Date();
-    return schedules
-      .filter(s => s.channel_id === channelId && new Date(s.start_time) > now)
+  const schedulesByChannel = useMemo(() => {
+    const map = new Map<string, Schedule[]>();
+    for (const schedule of schedules) {
+      const list = map.get(schedule.channel_id);
+      if (list) list.push(schedule);
+      else map.set(schedule.channel_id, [schedule]);
+    }
+    return map;
+  }, [schedules]);
+
+  const getCurrentProgram = useCallback((channelId: string) => (
+    currentProgramsByChannel.get(channelId)
+  ), [currentProgramsByChannel]);
+
+  const getUpcomingPrograms = useCallback((channelId: string, limit = 3) => {
+    const now = Date.now();
+    return (schedulesByChannel.get(channelId) || [])
+      .filter(s => new Date(s.start_time).getTime() > now)
       .slice(0, limit);
-  };
+  }, [schedulesByChannel]);
 
-  const getChannelSchedule = (channelId: string) => {
-    return schedules.filter(s => s.channel_id === channelId);
-  };
+  const getChannelSchedule = useCallback((channelId: string) => (
+    schedulesByChannel.get(channelId) || []
+  ), [schedulesByChannel]);
 
-  const getFeaturedChannel = () => {
-    return channels.find(c => c.is_live) || channels[0];
-  };
+  const getFeaturedChannel = useCallback(() => (
+    channels.find(c => c.is_live) || channels[0]
+  ), [channels]);
 
   const sourcesLoading = loading || iptvLoading || shamsLoading || uzLoading;
 

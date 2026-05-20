@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useDeferredValue, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Calendar, Clock, Play, Radio, ChevronLeft, ChevronRight,
@@ -16,21 +16,28 @@ import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { CategoryFilter } from '@/components/live/CategoryFilter';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { rankedSearch } from '@/utils/search';
 
 const TVGuide = () => {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
-  const { channels, schedules, loading } = useChannels();
+  const { channels, loading, getChannelSchedule } = useChannels();
   const [currentTime, setCurrentTime] = useState(new Date());
   const [timeOffset, setTimeOffset] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
+  const deferredSearchQuery = useDeferredValue(searchQuery);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [reminders, setReminders] = useState<Set<string>>(new Set());
   const [expandedChannel, setExpandedChannel] = useState<string | null>(null);
+  const guidePageSize = isMobile ? 80 : 160;
+  const [visibleCount, setVisibleCount] = useState(guidePageSize);
   const scrollRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
 
-  const categories = ['All', ...new Set(channels.map(c => c.category).filter(Boolean) as string[])];
+  const activeSearchQuery = deferredSearchQuery.trim();
+  const categories = useMemo(() => (
+    ['All', ...new Set(channels.map(c => c.category).filter(Boolean) as string[])]
+  ), [channels]);
 
   useEffect(() => {
     const interval = setInterval(() => setCurrentTime(new Date()), 60000);
@@ -50,7 +57,7 @@ const TVGuide = () => {
   const baseTime = startOfHour(addHours(currentTime, timeOffset));
   const timeSlots = Array.from({ length: 12 }, (_, i) => addHours(baseTime, i));
 
-  const getScheduleForChannel = useCallback((channelId: string) => schedules.filter(s => s.channel_id === channelId), [schedules]);
+  const getScheduleForChannel = useCallback((channelId: string) => getChannelSchedule(channelId), [getChannelSchedule]);
   const isCurrentlyPlaying = useCallback((schedule: Schedule) => isWithinInterval(currentTime, { start: new Date(schedule.start_time), end: new Date(schedule.end_time) }), [currentTime]);
 
   const getSchedulePosition = useCallback((schedule: Schedule) => {
@@ -89,15 +96,34 @@ const TVGuide = () => {
     });
   };
 
-  const filteredChannels = channels.filter(channel => {
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      const sched = getScheduleForChannel(channel.id);
-      if (!channel.name.toLowerCase().includes(q) && !sched.some(s => s.program_title.toLowerCase().includes(q))) return false;
-    }
-    if (selectedCategory !== 'All' && channel.category !== selectedCategory) return false;
-    return true;
-  });
+  const filteredChannels = useMemo(() => {
+    const base = activeSearchQuery
+      ? channels
+      : channels.filter(channel => selectedCategory === 'All' || channel.category === selectedCategory);
+
+    return activeSearchQuery
+      ? rankedSearch(base, activeSearchQuery, (channel) => [
+          channel.name,
+          channel.id,
+          channel.description,
+          channel.category,
+          channel.current_program,
+          channel.source,
+          getScheduleForChannel(channel.id).map((schedule) => schedule.program_title).join(' '),
+        ])
+      : base;
+  }, [activeSearchQuery, channels, getScheduleForChannel, selectedCategory]);
+
+  useEffect(() => {
+    setVisibleCount(guidePageSize);
+    scrollRef.current?.scrollTo({ top: 0 });
+  }, [activeSearchQuery, guidePageSize, selectedCategory]);
+
+  const visibleChannels = useMemo(
+    () => filteredChannels.slice(0, visibleCount),
+    [filteredChannels, visibleCount]
+  );
+  const hiddenChannelCount = Math.max(0, filteredChannels.length - visibleChannels.length);
 
   const currentTimePosition = (() => {
     const mins = differenceInMinutes(currentTime, baseTime);
@@ -189,7 +215,7 @@ const TVGuide = () => {
           {/* Mobile: Card-based channel list */}
           {isMobile ? (
             <MobileEPG
-              channels={filteredChannels}
+              channels={visibleChannels}
               getScheduleForChannel={getScheduleForChannel}
               isCurrentlyPlaying={isCurrentlyPlaying}
               isScheduleVisible={isScheduleVisible}
@@ -204,7 +230,7 @@ const TVGuide = () => {
           ) : (
             /* Desktop: Horizontal EPG Grid */
             <DesktopEPG
-              channels={filteredChannels}
+              channels={visibleChannels}
               timeSlots={timeSlots}
               timelineRef={timelineRef}
               scrollRef={scrollRef}
@@ -218,6 +244,18 @@ const TVGuide = () => {
               handleWatchChannel={handleWatchChannel}
               currentTime={currentTime}
             />
+          )}
+
+          {hiddenChannelCount > 0 && (
+            <div className="mt-4 flex justify-center">
+              <Button
+                variant="outline"
+                className="glass-subtle border-white/10"
+                onClick={() => setVisibleCount((count) => Math.min(count + guidePageSize, filteredChannels.length))}
+              >
+                Yana {Math.min(guidePageSize, hiddenChannelCount)} ta kanal ko'rsatish
+              </Button>
+            </div>
           )}
 
           {/* Legend */}

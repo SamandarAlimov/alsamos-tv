@@ -8,7 +8,7 @@ import {
 } from '@/utils/streams';
 
 const IPTV_INDEX_URL = 'https://iptv-org.github.io/iptv/index.m3u';
-const CACHE_KEY = 'iptv_channels_cache_v5_all';
+const CACHE_KEY = 'iptv_channels_cache_v6_all';
 const CACHE_TTL = 1000 * 60 * 60 * 6; // 6 hours
 const FETCH_TIMEOUT_MS = 15000;
 
@@ -47,6 +47,17 @@ function parseAttr(line: string, key: string): string | null {
   return m ? m[1] : null;
 }
 
+function parseVlcOpt(line: string, key: string): string | null {
+  const prefix = `#EXTVLCOPT:${key}=`;
+  return line.toLowerCase().startsWith(prefix.toLowerCase())
+    ? line.slice(prefix.length).trim()
+    : null;
+}
+
+function getPlaylistProxyUrl(url: string) {
+  return `/api/stream?raw=1&url=${encodeURIComponent(url)}`;
+}
+
 function normalizeCategory(group: string | null) {
   if (!group) return 'General';
   const first = group.split(';')[0].split(',')[0].trim();
@@ -81,16 +92,26 @@ function parseM3U(text: string): Channel[] {
     const tvgId = parseAttr(line, 'tvg-id');
     const country = parseAttr(line, 'tvg-country');
     const group = parseAttr(line, 'group-title');
+    let httpReferrer = parseAttr(line, 'http-referrer');
+    let httpUserAgent = parseAttr(line, 'http-user-agent');
 
     let j = i + 1;
-    while (j < lines.length && (lines[j].trim() === '' || lines[j].trim().startsWith('#'))) j += 1;
+    while (j < lines.length && (lines[j].trim() === '' || lines[j].trim().startsWith('#'))) {
+      const optionLine = lines[j].trim();
+      httpReferrer = parseVlcOpt(optionLine, 'http-referrer') || httpReferrer;
+      httpUserAgent = parseVlcOpt(optionLine, 'http-user-agent') || httpUserAgent;
+      j += 1;
+    }
 
     const url = lines[j]?.trim();
     if (url && /^https?:\/\//i.test(url)) {
       const streamUrl = url;
       const streamType = getStreamType(streamUrl);
       const streamHealth = getStreamHealth(streamUrl, streamType);
-      const playableCandidates = getStreamCandidates(streamUrl);
+      const playableCandidates = getStreamCandidates(streamUrl, {
+        referer: httpReferrer,
+        userAgent: httpUserAgent,
+      });
       const dedupeKey = `${name.toLowerCase()}|${streamUrl}`;
 
       if (!seen.has(dedupeKey)) {
@@ -106,6 +127,8 @@ function parseM3U(text: string): Channel[] {
           current_program: 'Live Broadcast',
           viewer_count: 0,
           stream_type: streamType,
+          http_referrer: httpReferrer,
+          http_user_agent: httpUserAgent,
           is_alsamos_channel: false,
           embed_allowed: streamHealth !== 'unsupported' || playableCandidates.length > 0,
           share_enabled: true,
@@ -135,6 +158,7 @@ async function fetchWithTimeout(url: string, timeoutMs = FETCH_TIMEOUT_MS): Prom
 
 async function fetchWithFallback(url: string): Promise<string> {
   const proxies = [
+    getPlaylistProxyUrl,
     (u: string) => u,
     (u: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
     (u: string) => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,

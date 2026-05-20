@@ -6,13 +6,24 @@ const UZ_URLS = [
   'https://iptv-org.github.io/iptv/countries/uz.m3u',
   'https://iptv-org.github.io/iptv/languages/uzb.m3u',
 ];
-const CACHE_KEY = 'uz_channels_cache_v3';
+const CACHE_KEY = 'uz_channels_cache_v4';
 const CACHE_TTL = 1000 * 60 * 60 * 6;
 const FETCH_TIMEOUT_MS = 10000;
 
 function parseAttr(line: string, key: string): string | null {
   const m = line.match(new RegExp(`${key}="([^"]*)"`, 'i'));
   return m ? m[1] : null;
+}
+
+function parseVlcOpt(line: string, key: string): string | null {
+  const prefix = `#EXTVLCOPT:${key}=`;
+  return line.toLowerCase().startsWith(prefix.toLowerCase())
+    ? line.slice(prefix.length).trim()
+    : null;
+}
+
+function getPlaylistProxyUrl(url: string) {
+  return `/api/stream?raw=1&url=${encodeURIComponent(url)}`;
 }
 
 function parseM3U(text: string, idPrefix: string): Channel[] {
@@ -26,14 +37,24 @@ function parseM3U(text: string, idPrefix: string): Channel[] {
       const name = commaIdx > -1 ? line.slice(commaIdx + 1).trim() : 'Unknown';
       const logo = parseAttr(line, 'tvg-logo');
       const group = parseAttr(line, 'group-title') || 'Uzbekistan';
+      let httpReferrer = parseAttr(line, 'http-referrer');
+      let httpUserAgent = parseAttr(line, 'http-user-agent');
       let j = i + 1;
-      while (j < lines.length && (lines[j].trim() === '' || lines[j].trim().startsWith('#'))) j++;
+      while (j < lines.length && (lines[j].trim() === '' || lines[j].trim().startsWith('#'))) {
+        const optionLine = lines[j].trim();
+        httpReferrer = parseVlcOpt(optionLine, 'http-referrer') || httpReferrer;
+        httpUserAgent = parseVlcOpt(optionLine, 'http-user-agent') || httpUserAgent;
+        j++;
+      }
       const url = lines[j]?.trim();
       if (url && /^https?:\/\//i.test(url)) {
         const streamUrl = url;
         const streamType = /\.m3u8(\?|$)/i.test(streamUrl) ? 'hls' : 'mpegts';
         const streamHealth = getStreamHealth(streamUrl, streamType);
-        const playableCandidates = getStreamCandidates(streamUrl);
+        const playableCandidates = getStreamCandidates(streamUrl, {
+          referer: httpReferrer,
+          userAgent: httpUserAgent,
+        });
         out.push({
           id: `${idPrefix}:${n++}`,
           name,
@@ -45,6 +66,8 @@ function parseM3U(text: string, idPrefix: string): Channel[] {
           current_program: 'Live Broadcast',
           viewer_count: 0,
           stream_type: streamType,
+          http_referrer: httpReferrer,
+          http_user_agent: httpUserAgent,
           is_alsamos_channel: false,
           embed_allowed: streamHealth !== 'unsupported' || playableCandidates.length > 0,
           share_enabled: true,
@@ -72,6 +95,11 @@ async function fetchWithTimeout(url: string, timeoutMs = FETCH_TIMEOUT_MS): Prom
 }
 
 async function fetchText(url: string): Promise<string> {
+  try {
+    const r = await fetchWithTimeout(getPlaylistProxyUrl(url));
+    if (r.ok) return await r.text();
+  } catch {}
+
   try {
     const r = await fetchWithTimeout(url);
     if (r.ok) return await r.text();

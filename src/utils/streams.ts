@@ -1,5 +1,10 @@
 export type StreamHealth = 'ready' | 'mixed-content' | 'unsupported' | 'unknown';
 
+export interface StreamRequestOptions {
+  referer?: string | null;
+  userAgent?: string | null;
+}
+
 const STREAM_PROXIES = [
   (url: string) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
   (url: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
@@ -49,20 +54,21 @@ export function getPreferredStreamUrl(url: string | null | undefined) {
   return url;
 }
 
-export function getLocalStreamProxyUrl(url: string | null | undefined, referer?: string | null) {
+export function getLocalStreamProxyUrl(url: string | null | undefined, options: StreamRequestOptions = {}) {
   if (!url) return null;
 
   try {
     new URL(url);
     const params = new URLSearchParams({ url });
-    if (referer) params.set('referer', referer);
+    if (options.referer) params.set('referer', options.referer);
+    if (options.userAgent) params.set('ua', options.userAgent);
     return `/api/stream?${params.toString()}`;
   } catch {
     return null;
   }
 }
 
-export function getStreamCandidates(url: string | null | undefined) {
+export function getStreamCandidates(url: string | null | undefined, options: StreamRequestOptions = {}) {
   if (!url) return [];
 
   let upgraded: string | null = null;
@@ -80,8 +86,8 @@ export function getStreamCandidates(url: string | null | undefined) {
   const proxyTargets = unique([url, upgraded]);
 
   return unique([
-    getLocalStreamProxyUrl(url),
-    upgraded ? getLocalStreamProxyUrl(upgraded) : null,
+    getLocalStreamProxyUrl(url, options),
+    upgraded ? getLocalStreamProxyUrl(upgraded, options) : null,
     preferred,
     upgraded,
     isMixedContentUrl(url) ? null : url,

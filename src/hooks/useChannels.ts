@@ -18,6 +18,8 @@ export interface Channel {
   youtube_video_id?: string | null;
   youtube_channel_id?: string | null;
   stream_type?: string | null;
+  http_referrer?: string | null;
+  http_user_agent?: string | null;
   is_alsamos_channel?: boolean | null;
   embed_allowed?: boolean | null;
   share_enabled?: boolean | null;

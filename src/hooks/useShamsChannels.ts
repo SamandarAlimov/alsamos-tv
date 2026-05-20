@@ -3,7 +3,7 @@ import type { Channel } from './useChannels';
 import { getStreamCandidates, getStreamHealth, isHlsUrl, isTransportStreamUrl } from '@/utils/streams';
 
 const SHAMS_URLS = ['http://iptvshams.ru/ShamsTV.m3u8', 'https://iptvshams.ru/ShamsTV.m3u8'];
-const CACHE_KEY = 'shams_channels_cache_v5';
+const CACHE_KEY = 'shams_channels_cache_v7';
 const CACHE_TTL = 1000 * 60 * 60 * 6; // 6h
 const FETCH_TIMEOUT_MS = 10000;
 
@@ -26,6 +26,17 @@ function parseAttr(line: string, key: string): string | null {
   return m ? m[1] : null;
 }
 
+function parseVlcOpt(line: string, key: string): string | null {
+  const prefix = `#EXTVLCOPT:${key}=`;
+  return line.toLowerCase().startsWith(prefix.toLowerCase())
+    ? line.slice(prefix.length).trim()
+    : null;
+}
+
+function getPlaylistProxyUrl(url: string) {
+  return `/api/stream?raw=1&url=${encodeURIComponent(url)}`;
+}
+
 function parseM3U(text: string): Channel[] {
   const lines = text.split(/\r?\n/);
   const out: Channel[] = [];
@@ -38,16 +49,28 @@ function parseM3U(text: string): Channel[] {
       const name = commaIdx > -1 ? line.slice(commaIdx + 1).trim() : 'Unknown';
       const logo = parseAttr(line, 'tvg-logo');
       const group = parseAttr(line, 'group-title') || 'General';
+      let httpReferrer = parseAttr(line, 'http-referrer');
+      let httpUserAgent = parseAttr(line, 'http-user-agent');
       // find next non-empty, non-comment line as URL
       let j = i + 1;
-      while (j < lines.length && (lines[j].trim() === '' || lines[j].trim().startsWith('#'))) j++;
+      while (j < lines.length && (lines[j].trim() === '' || lines[j].trim().startsWith('#'))) {
+        const optionLine = lines[j].trim();
+        httpReferrer = parseVlcOpt(optionLine, 'http-referrer') || httpReferrer;
+        httpUserAgent = parseVlcOpt(optionLine, 'http-user-agent') || httpUserAgent;
+        j++;
+      }
       const url = lines[j]?.trim();
       if (url && /^https?:\/\//i.test(url)) {
         const streamUrl = url;
         const cat = GROUP_TO_CATEGORY[group] || group;
-        const streamType = isHlsUrl(streamUrl) ? 'hls' : isTransportStreamUrl(streamUrl) ? 'mpegts' : 'mpegts';
+        const streamType = isHlsUrl(streamUrl) || /\/play\/.+\/ts(?:\?|$)/i.test(streamUrl)
+          ? 'hls'
+          : isTransportStreamUrl(streamUrl) ? 'mpegts' : 'mpegts';
         const streamHealth = getStreamHealth(streamUrl, streamType);
-        const playableCandidates = getStreamCandidates(streamUrl);
+        const playableCandidates = getStreamCandidates(streamUrl, {
+          referer: httpReferrer,
+          userAgent: httpUserAgent,
+        });
         // skip the "subscribe" promo entry
         if (!/подпишись/i.test(name) && !/подпишись/i.test(group)) {
           out.push({
@@ -61,6 +84,8 @@ function parseM3U(text: string): Channel[] {
             current_program: 'Live Broadcast',
             viewer_count: 0,
             stream_type: streamType,
+            http_referrer: httpReferrer,
+            http_user_agent: httpUserAgent,
             is_alsamos_channel: false,
             embed_allowed: streamHealth !== 'unsupported' || playableCandidates.length > 0,
             share_enabled: true,
@@ -90,6 +115,7 @@ async function fetchWithTimeout(url: string, timeoutMs = FETCH_TIMEOUT_MS): Prom
 
 async function fetchWithFallback(urls: string[]): Promise<string> {
   const proxies = [
+    getPlaylistProxyUrl,
     (u: string) => u,
     (u: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
     (u: string) => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,

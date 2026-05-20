@@ -15,6 +15,7 @@ const CORS_HEADERS: Record<string, string> = {
   'access-control-allow-methods': 'GET, HEAD, OPTIONS',
   'access-control-allow-headers': 'Range, Content-Type, Origin, Referer, User-Agent',
   'access-control-expose-headers': 'Content-Length, Content-Range, Accept-Ranges, Content-Type',
+  'x-accel-buffering': 'no',
 };
 
 type ApiRequest = {
@@ -48,9 +49,10 @@ function setHeaders(res: ApiResponse, headers: Record<string, string>) {
   Object.entries(headers).forEach(([key, value]) => res.setHeader(key, value));
 }
 
-function getProxyUrl(target: string, referer?: string | null) {
+function getProxyUrl(target: string, referer?: string | null, userAgent?: string | null) {
   const params = new URLSearchParams({ url: target });
   if (referer) params.set('referer', referer);
+  if (userAgent) params.set('ua', userAgent);
   return `/api/stream?${params.toString()}`;
 }
 
@@ -59,17 +61,17 @@ function isHlsManifest(target: URL, contentType: string | null) {
   return HLS_CONTENT_TYPES.includes(normalizedType) || target.pathname.toLowerCase().endsWith('.m3u8');
 }
 
-function rewriteUri(value: string, base: URL, referer?: string | null) {
+function rewriteUri(value: string, base: URL, referer?: string | null, userAgent?: string | null) {
   if (!value || value.startsWith('data:')) return value;
 
   try {
-    return getProxyUrl(new URL(value, base).toString(), referer);
+    return getProxyUrl(new URL(value, base).toString(), referer, userAgent);
   } catch {
     return value;
   }
 }
 
-function rewriteHlsManifest(manifest: string, base: URL, referer?: string | null) {
+function rewriteHlsManifest(manifest: string, base: URL, referer?: string | null, userAgent?: string | null) {
   return manifest
     .split(/\r?\n/)
     .map((line) => {
@@ -77,10 +79,13 @@ function rewriteHlsManifest(manifest: string, base: URL, referer?: string | null
       if (!trimmed) return line;
 
       if (trimmed.startsWith('#')) {
-        return line.replace(/URI="([^"]+)"/g, (_match, uri) => `URI="${rewriteUri(uri, base, referer)}"`);
+        return line.replace(
+          /URI="([^"]+)"/g,
+          (_match, uri) => `URI="${rewriteUri(uri, base, referer, userAgent)}"`
+        );
       }
 
-      return rewriteUri(trimmed, base, referer);
+      return rewriteUri(trimmed, base, referer, userAgent);
     })
     .join('\n');
 }
@@ -111,7 +116,7 @@ function copyUpstreamHeaders(upstream: Response, res: ApiResponse, rewriteManife
   const contentType = upstream.headers.get('content-type');
   const contentLength = upstream.headers.get('content-length');
   if (contentType) res.setHeader('content-type', contentType);
-  if (contentLength) res.setHeader('content-length', contentLength);
+  if (contentLength && contentLength !== '0') res.setHeader('content-length', contentLength);
 }
 
 export default async function handler(req: ApiRequest, res: ApiResponse) {
@@ -145,15 +150,17 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     return;
   }
 
-  const referer = getQueryValue(req, 'referer') || getQueryValue(req, 'referrer') || target.origin;
+  const referer = getQueryValue(req, 'referer') || getQueryValue(req, 'referrer') || null;
+  const userAgent = getQueryValue(req, 'ua') || getQueryValue(req, 'userAgent') || getHeaderValue(req, 'user-agent') || DEFAULT_USER_AGENT;
+  const rawMode = getQueryValue(req, 'raw') === '1' || getQueryValue(req, 'rewrite') === '0';
   const upstreamHeaders = new Headers();
-  upstreamHeaders.set('user-agent', getHeaderValue(req, 'user-agent') || DEFAULT_USER_AGENT);
+  upstreamHeaders.set('user-agent', userAgent);
   upstreamHeaders.set('accept', getHeaderValue(req, 'accept') || '*/*');
-  upstreamHeaders.set('referer', referer);
-  try {
-    upstreamHeaders.set('origin', new URL(referer).origin);
-  } catch {
-    upstreamHeaders.set('origin', target.origin);
+  if (referer) {
+    upstreamHeaders.set('referer', referer);
+    try {
+      upstreamHeaders.set('origin', new URL(referer).origin);
+    } catch {}
   }
 
   const range = getHeaderValue(req, 'range');
@@ -177,7 +184,8 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   }
   clearTimeout(timeout);
 
-  const rewriteManifest = isHlsManifest(target, upstream.headers.get('content-type'));
+  const upstreamBase = new URL(upstream.url || target.toString());
+  const rewriteManifest = !rawMode && isHlsManifest(upstreamBase, upstream.headers.get('content-type'));
   copyUpstreamHeaders(upstream, res, rewriteManifest);
   res.status(upstream.status);
 
@@ -188,7 +196,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
 
   if (rewriteManifest) {
     const manifest = await upstream.text();
-    res.send(rewriteHlsManifest(manifest, target, referer));
+    res.send(rewriteHlsManifest(manifest, upstreamBase, referer, userAgent));
     return;
   }
 

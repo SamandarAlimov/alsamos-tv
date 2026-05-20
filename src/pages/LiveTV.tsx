@@ -37,7 +37,10 @@ function isBrowserPlayableChannel(channel: Channel | null | undefined, failedIds
   if (channel.youtube_video_id || channel.stream_type === 'youtube_playlist' || channel.stream_type === 'youtube_live') return true;
   if (!channel.stream_url) return false;
   const health = channel.stream_health || getStreamHealth(channel.stream_url, channel.stream_type);
-  const hasFallback = getStreamCandidates(channel.stream_url).length > 0;
+  const hasFallback = getStreamCandidates(channel.stream_url, {
+    referer: channel.http_referrer,
+    userAgent: channel.http_user_agent,
+  }).length > 0;
   if (channel.embed_allowed === false && !hasFallback) return false;
   if (strict) return (health !== 'unsupported' && health !== 'mixed-content') || hasFallback;
   return health !== 'unsupported' || hasFallback;
@@ -305,8 +308,11 @@ const LiveTV = () => {
     : 'ready';
   const canPlaySelected = isBrowserPlayableChannel(selectedChannel, failedChannelIds, false);
   const selectedStreamCandidates = useMemo(
-    () => getStreamCandidates(selectedChannel?.stream_url),
-    [selectedChannel?.stream_url]
+    () => getStreamCandidates(selectedChannel?.stream_url, {
+      referer: selectedChannel?.http_referrer,
+      userAgent: selectedChannel?.http_user_agent,
+    }),
+    [selectedChannel?.http_referrer, selectedChannel?.http_user_agent, selectedChannel?.stream_url]
   );
   const playableCount = channels.filter((channel) => isBrowserPlayableChannel(channel, failedChannelIds, true)).length;
 
@@ -380,6 +386,8 @@ const LiveTV = () => {
                   muted={isMuted}
                   autoPlay
                   className="w-full h-full object-contain"
+                  referrer={selectedChannel.http_referrer || undefined}
+                  userAgent={selectedChannel.http_user_agent || undefined}
                   streamType={selectedChannel.stream_type}
                   onRecovering={() => setShowControls(true)}
                   onError={handleStreamError}

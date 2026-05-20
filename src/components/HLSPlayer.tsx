@@ -43,6 +43,10 @@ declare global {
 }
 
 let mpegTsLoader: Promise<MpegTsApi | null> | null = null;
+const MPEG_TS_SCRIPT_SOURCES = [
+  'https://cdn.jsdelivr.net/npm/mpegts.js@1.8.0/dist/mpegts.min.js',
+  'https://unpkg.com/mpegts.js@1.8.0/dist/mpegts.min.js',
+];
 
 function loadMpegTs() {
   if (typeof window === 'undefined') return Promise.resolve(null);
@@ -50,27 +54,45 @@ function loadMpegTs() {
   if (mpegTsLoader) return mpegTsLoader;
 
   mpegTsLoader = new Promise((resolve) => {
-    const existing = document.querySelector<HTMLScriptElement>('script[data-mpegts-player="true"]');
-    if (existing) {
-      existing.addEventListener('load', () => resolve(window.mpegts || null), { once: true });
-      existing.addEventListener('error', () => resolve(null), { once: true });
-      return;
-    }
+    let index = 0;
 
-    const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/mpegts.js@1.8.0/dist/mpegts.min.js';
-    script.async = true;
-    script.dataset.mpegtsPlayer = 'true';
-    script.onload = () => resolve(window.mpegts || null);
-    script.onerror = () => resolve(null);
-    document.head.appendChild(script);
+    const tryNext = () => {
+      if (window.mpegts) {
+        resolve(window.mpegts);
+        return;
+      }
+
+      const src = MPEG_TS_SCRIPT_SOURCES[index];
+      if (!src) {
+        resolve(null);
+        return;
+      }
+      index += 1;
+
+      const script = document.createElement('script');
+      script.src = src;
+      script.async = true;
+      script.crossOrigin = 'anonymous';
+      script.dataset.mpegtsPlayer = 'true';
+      script.onload = () => {
+        if (window.mpegts) resolve(window.mpegts);
+        else tryNext();
+      };
+      script.onerror = () => {
+        script.remove();
+        tryNext();
+      };
+      document.head.appendChild(script);
+    };
+
+    tryNext();
   });
 
   return mpegTsLoader;
 }
 
 export const HLSPlayer = forwardRef<HTMLVideoElement, HLSPlayerProps>(
-  ({ src, srcs, muted = true, autoPlay = true, className, streamType, onError, onRecovering }, ref) => {
+  ({ src, srcs, muted = true, autoPlay = true, className, referrer, userAgent, streamType, onError, onRecovering }, ref) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const hlsRef = useRef<Hls | null>(null);
     const mpegTsRef = useRef<MpegTsPlayer | null>(null);
@@ -81,9 +103,9 @@ export const HLSPlayer = forwardRef<HTMLVideoElement, HLSPlayerProps>(
     const [sourceIndex, setSourceIndex] = useState(0);
 
     const candidates = useMemo(() => {
-      const list = srcs?.length ? srcs : getStreamCandidates(src);
+      const list = srcs?.length ? srcs : getStreamCandidates(src, { referer: referrer, userAgent });
       return list.length ? list : [src];
-    }, [src, srcs]);
+    }, [referrer, src, srcs, userAgent]);
 
     const activeSrc = candidates[Math.min(sourceIndex, Math.max(candidates.length - 1, 0))];
 
@@ -145,12 +167,11 @@ export const HLSPlayer = forwardRef<HTMLVideoElement, HLSPlayerProps>(
           clearTimeout(startupWatchdogRef.current);
         }
       };
+      cleanupPlayers();
       video.addEventListener('error', handleVideoError);
       video.addEventListener('playing', handlePlaying);
       video.addEventListener('loadeddata', handleReady);
       video.addEventListener('canplay', handleReady);
-
-      cleanupPlayers();
       startupWatchdogRef.current = setTimeout(() => {
         if (video.readyState < 2) tryNextSource();
       }, 14000);
@@ -210,12 +231,17 @@ export const HLSPlayer = forwardRef<HTMLVideoElement, HLSPlayerProps>(
             type: 'mpegts',
             isLive: true,
             url: activeSrc,
+            cors: true,
+            withCredentials: false,
+            hasAudio: true,
+            hasVideo: true,
           }, {
             enableWorker: true,
             enableStashBuffer: false,
             stashInitialSize: 128,
             lazyLoad: false,
             autoCleanupSourceBuffer: true,
+            reuseRedirectedURL: true,
           });
           mpegTsRef.current = player;
           player.attachMediaElement(video);

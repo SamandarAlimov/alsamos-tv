@@ -105,7 +105,12 @@ export const HLSPlayer = forwardRef<HTMLVideoElement, HLSPlayerProps>(
     const [sourceIndex, setSourceIndex] = useState(0);
 
     const candidates = useMemo(() => {
-      const list = srcs?.length ? srcs : getStreamCandidates(src, { referer: referrer, userAgent, proxyOnly: true });
+      const list = srcs?.length ? srcs : getStreamCandidates(src, {
+        referer: referrer,
+        userAgent,
+        proxyOnly: true,
+        preferDirectHls: true,
+      });
       return list.length ? list : [src];
     }, [referrer, src, srcs, userAgent]);
 
@@ -189,7 +194,7 @@ export const HLSPlayer = forwardRef<HTMLVideoElement, HLSPlayerProps>(
       video.addEventListener('canplay', handleReady);
       startupWatchdogRef.current = setTimeout(() => {
         if (video.readyState < 2) tryNextSource();
-      }, 14000);
+      }, 22000);
 
       const normalizedStreamType = (streamType || '').toLowerCase();
       const isM3U8 = normalizedStreamType === 'hls' || isHlsUrl(activeSrc);

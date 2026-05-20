@@ -4,6 +4,7 @@ export interface StreamRequestOptions {
   referer?: string | null;
   userAgent?: string | null;
   proxyOnly?: boolean;
+  preferDirectHls?: boolean;
 }
 
 const STREAM_PROXIES = [
@@ -63,6 +64,7 @@ export function getLocalStreamProxyUrl(url: string | null | undefined, options: 
     const params = new URLSearchParams({ url });
     if (options.referer) params.set('referer', options.referer);
     if (options.userAgent) params.set('ua', options.userAgent);
+    if (options.preferDirectHls) params.set('direct', '1');
     return `/api/stream?${params.toString()}`;
   } catch {
     return null;
@@ -85,9 +87,12 @@ export function getStreamCandidates(url: string | null | undefined, options: Str
 
   const preferred = getPreferredStreamUrl(url);
   const proxyTargets = unique([url, upgraded]);
+  const directOptions = { ...options, preferDirectHls: true };
   const localProxyCandidates = unique([
-    getLocalStreamProxyUrl(url, options),
-    upgraded ? getLocalStreamProxyUrl(upgraded, options) : null,
+    options.preferDirectHls ? getLocalStreamProxyUrl(url, directOptions) : null,
+    options.preferDirectHls && upgraded ? getLocalStreamProxyUrl(upgraded, directOptions) : null,
+    getLocalStreamProxyUrl(url, { ...options, preferDirectHls: false }),
+    upgraded ? getLocalStreamProxyUrl(upgraded, { ...options, preferDirectHls: false }) : null,
   ]);
 
   if (options.proxyOnly && localProxyCandidates.length > 0) {

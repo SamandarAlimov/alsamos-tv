@@ -444,7 +444,6 @@ const uzbekMovies: CatalogSeed[] = [
       rating: 'PG-13',
       duration: '1h 50m',
       youtubeId: 'lA2Tg_QuPVQ',
-      videoUrl: yt('lA2Tg_QuPVQ'),
       isTrending: true,
   },
   {

@@ -49,6 +49,7 @@ function isTextEntryElement(element: EventTarget | null) {
 
 function isVisibleFocusable(element: HTMLElement) {
   if (element.tabIndex < 0 || element.getAttribute('aria-hidden') === 'true') return false;
+  if (element.tagName === 'BUTTON' && element.closest('a[href]')) return false;
   const style = window.getComputedStyle(element);
   if (style.visibility === 'hidden' || style.display === 'none') return false;
   const rect = element.getBoundingClientRect();
@@ -76,6 +77,16 @@ function findSpatialFocusTarget(
 
   if (!current || currentIndex === -1) {
     return elements.find((element) => element.dataset.selected === 'true') || elements[0];
+  }
+
+  const row = current.closest<HTMLElement>('[data-tv-row]');
+  if ((direction === 'ArrowLeft' || direction === 'ArrowRight') && row) {
+    const rowItems = elements.filter((element) => row.contains(element));
+    if (rowItems.length > 1) {
+      const rowIndex = rowItems.indexOf(current);
+      const step = direction === 'ArrowRight' ? 1 : -1;
+      return rowItems[(rowIndex + step + rowItems.length) % rowItems.length];
+    }
   }
 
   const currentRect = current.getBoundingClientRect();
@@ -170,6 +181,8 @@ const LiveTV = () => {
   const showControlsRef = useRef(showControls);
   const isPlayingRef = useRef(isPlaying);
   const lastControlsMoveRef = useRef(0);
+  const dvrOffsetRef = useRef(0);
+  const dvrTimelineMaxRef = useRef(DEFAULT_DVR_WINDOW_SECONDS);
   
   const [dvrOffset, setDvrOffset] = useState(0);
   const [isDvrLive, setIsDvrLive] = useState(true);
@@ -423,6 +436,7 @@ const LiveTV = () => {
       const activeInsidePage = !!(active && pageRef.current?.contains(active));
       const textEntry = isTextEntryElement(e.target);
       const isArrowKey = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key);
+      const isSelectKey = ['OK', 'Accept', 'Select'].includes(e.key);
 
       if (isArrowKey) {
         if (textEntry && e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
@@ -434,6 +448,11 @@ const LiveTV = () => {
 
       if (textEntry) return;
       if (activeInsidePage && active?.matches(TV_FOCUS_SELECTOR) && (e.key === 'Enter' || e.key === ' ')) return;
+      if (activeInsidePage && active?.matches(TV_FOCUS_SELECTOR) && isSelectKey) {
+        e.preventDefault();
+        active.click();
+        return;
+      }
 
       switch (e.key.toLowerCase()) {
         case ' ':
@@ -443,6 +462,16 @@ const LiveTV = () => {
           e.preventDefault(); toggleMute(); break;
         case 'f':
           e.preventDefault(); toggleFullscreen(); break;
+        case 'j':
+        case ',':
+          e.preventDefault(); handleDvrSeek(Math.min(dvrTimelineMaxRef.current, dvrOffsetRef.current + 30)); break;
+        case 'l':
+        case '.':
+          e.preventDefault(); handleDvrSeek(Math.max(0, dvrOffsetRef.current - 30)); break;
+        case 'home':
+          e.preventDefault(); handleDvrSeek(dvrTimelineMaxRef.current); break;
+        case 'end':
+          e.preventDefault(); handleGoLive(); break;
         case '+':
         case '=':
           e.preventDefault(); handleVolumeChange([Math.min(100, volume + 5)]); break;
@@ -478,6 +507,11 @@ const LiveTV = () => {
   const isPlaylistDvrChannel = selectedChannel?.stream_type === 'youtube_playlist' && !!selectedChannel.youtube_video_id;
   const dvrTimelineMax = isPlaylistDvrChannel ? DEFAULT_DVR_WINDOW_SECONDS : Math.max(1, dvrMaxRewindSeconds);
   const isDvrDisabled = !isPlaylistDvrChannel && !hasDvrWindow;
+
+  useEffect(() => {
+    dvrOffsetRef.current = dvrOffset;
+    dvrTimelineMaxRef.current = dvrTimelineMax;
+  }, [dvrOffset, dvrTimelineMax]);
 
   const handleDvrSeek = useCallback((offsetSeconds: number) => {
     if (!selectedChannel) return;

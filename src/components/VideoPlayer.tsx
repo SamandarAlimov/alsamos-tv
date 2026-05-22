@@ -287,6 +287,10 @@ export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressU
     setShowSettings(false);
   };
 
+  useEffect(() => {
+    containerRef.current?.focus({ preventScroll: true });
+  }, []);
+
   const formatTime = (time: number) => {
     const hours = Math.floor(time / 3600);
     const minutes = Math.floor((time % 3600) / 60);
@@ -323,13 +327,106 @@ export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressU
     else window.location.href = '/';
   };
 
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    if (target.closest('[role="menu"], [role="menuitem"]')) return;
+    if (target !== containerRef.current && target.closest('button, [role="slider"], input, textarea, select, a[href]')) {
+      if (event.key === 'Enter' || event.key === ' ') return;
+    }
+
+    const key = event.key.toLowerCase();
+    const selectKey = ['enter', ' ', 'ok', 'accept', 'select'].includes(key);
+
+    switch (key) {
+      case ' ':
+      case 'enter':
+      case 'ok':
+      case 'accept':
+      case 'select':
+      case 'k':
+        event.preventDefault();
+        event.stopPropagation();
+        togglePlay();
+        break;
+      case 'f':
+        event.preventDefault();
+        event.stopPropagation();
+        toggleFullscreen();
+        break;
+      case 'm':
+        event.preventDefault();
+        event.stopPropagation();
+        toggleMute();
+        break;
+      case 'arrowleft':
+      case 'j':
+        event.preventDefault();
+        event.stopPropagation();
+        skip(-10);
+        break;
+      case 'arrowright':
+      case 'l':
+        event.preventDefault();
+        event.stopPropagation();
+        skip(10);
+        break;
+      case 'pagedown':
+        event.preventDefault();
+        event.stopPropagation();
+        skip(-60);
+        break;
+      case 'pageup':
+        event.preventDefault();
+        event.stopPropagation();
+        skip(60);
+        break;
+      case 'arrowup':
+        event.preventDefault();
+        event.stopPropagation();
+        handleVolumeChange([Math.min(1, volume + 0.05)]);
+        break;
+      case 'arrowdown':
+        event.preventDefault();
+        event.stopPropagation();
+        handleVolumeChange([Math.max(0, volume - 0.05)]);
+        break;
+      case 'home':
+        event.preventDefault();
+        event.stopPropagation();
+        handleSeek([0]);
+        break;
+      case 'end':
+        if (Number.isFinite(duration) && duration > 0) {
+          event.preventDefault();
+          event.stopPropagation();
+          handleSeek([duration]);
+        }
+        break;
+      case 'escape':
+      case 'backspace':
+      case 'browserback':
+        event.preventDefault();
+        event.stopPropagation();
+        if (onBack) onBack();
+        break;
+      default:
+        if (selectKey) {
+          event.preventDefault();
+          event.stopPropagation();
+          togglePlay();
+        }
+    }
+  };
+
   return (
     <div
       ref={containerRef}
-      className="relative w-full h-full bg-black overflow-hidden group"
+      tabIndex={0}
+      className="relative w-full h-full bg-black overflow-hidden group focus:outline-none"
       onMouseMove={handleMouseMove}
       onMouseLeave={() => isPlaying && setShowControls(false)}
       onDoubleClick={toggleFullscreen}
+      onKeyDown={handleKeyDown}
     >
       {/* Video */}
       <video

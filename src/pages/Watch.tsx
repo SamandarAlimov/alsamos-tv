@@ -1,4 +1,4 @@
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { VideoPlayer } from '@/components/VideoPlayer';
@@ -9,6 +9,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { fallbackContent } from '@/data/fallbackContent';
 import { normalizeSearchText } from '@/utils/search';
+import { type ContentItem, useContent } from '@/hooks/useContent';
 
 interface ContentData {
   id: string;
@@ -74,6 +75,15 @@ function getFallbackContent(id: string | undefined): ContentData | null {
   };
 }
 
+function mapCatalogToWatchContent(item: ContentItem): ContentData {
+  return {
+    id: item.id,
+    title: item.title,
+    backdrop_url: item.backdrop || item.thumbnail || null,
+    video_url: item.videoUrl || null,
+  };
+}
+
 function getYouTubeId(value: string | null | undefined) {
   if (!value) return null;
   try {
@@ -111,11 +121,14 @@ function normalizeWatchContent(content: ContentData): ContentData {
 const Watch = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const { toast } = useToast();
+  const { allContent, loading: catalogLoading, shamsMoviesLoading } = useContent();
   const [content, setContent] = useState<ContentData | null>(null);
   const [loading, setLoading] = useState(true);
   const ytRef = useRef<YTPlayer | null>(null);
+  const youtubeContainerRef = useRef<HTMLDivElement>(null);
 
   // Fetch content data
   useEffect(() => {
@@ -126,9 +139,39 @@ const Watch = () => {
       }
 
       try {
+        if (!isUuid(id)) {
+          const routedContent = (location.state as { content?: ContentItem } | null)?.content;
+          if (routedContent?.id === id) {
+            setContent(normalizeWatchContent(mapCatalogToWatchContent(routedContent)));
+            setLoading(false);
+            return;
+          }
+
+          const catalogItem = allContent.find((item) => item.id === id) || null;
+          if (catalogItem) {
+            setContent(normalizeWatchContent(mapCatalogToWatchContent(catalogItem)));
+            setLoading(false);
+            return;
+          }
+
+          if (catalogLoading || shamsMoviesLoading) {
+            setLoading(true);
+            return;
+          }
+
+          toast({
+            title: 'Kontent topilmadi',
+            description: 'Ushbu kino katalogda topilmadi yoki ShamsTV ro‘yxati yuklanmadi.',
+            variant: 'destructive',
+          });
+          navigate('/movies');
+          setLoading(false);
+          return;
+        }
+
         const localContent = getFallbackContent(id);
-        if (localContent && !isUuid(id)) {
-          setContent(localContent);
+        if (localContent) {
+          setContent(normalizeWatchContent(localContent));
           setLoading(false);
           return;
         }
@@ -165,7 +208,7 @@ const Watch = () => {
     };
 
     fetchContent();
-  }, [id, user, navigate, toast]);
+  }, [allContent, catalogLoading, id, location.state, navigate, shamsMoviesLoading, toast]);
 
   const handleProgressUpdate = useCallback(
     async (progress: number, duration: number) => {
@@ -217,6 +260,11 @@ const Watch = () => {
     if (content) incrementViewCount();
   }, [id, content]);
 
+  useEffect(() => {
+    if (!content || !getYouTubeSource(content.video_url)) return;
+    requestAnimationFrame(() => youtubeContainerRef.current?.focus({ preventScroll: true }));
+  }, [content]);
+
   if (loading) {
     return (
       <div className="w-full h-screen bg-black flex items-center justify-center">
@@ -233,10 +281,104 @@ const Watch = () => {
     else navigate('/');
   };
 
+  const toggleYouTubeFullscreen = async () => {
+    const container = youtubeContainerRef.current;
+    if (!container) return;
+    const doc = document as any;
+    const el = container as any;
+    try {
+      if (doc.fullscreenElement || doc.webkitFullscreenElement || doc.msFullscreenElement) {
+        if (doc.exitFullscreen) await doc.exitFullscreen();
+        else if (doc.webkitExitFullscreen) doc.webkitExitFullscreen();
+        else if (doc.msExitFullscreen) doc.msExitFullscreen();
+        return;
+      }
+      if (el.requestFullscreen) await el.requestFullscreen();
+      else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+      else if (el.msRequestFullscreen) el.msRequestFullscreen();
+    } catch (error) {
+      console.warn('YouTube fullscreen failed', error);
+    }
+  };
+
+  const handleYouTubeKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    if (target !== youtubeContainerRef.current && target.closest('button, a[href]')) {
+      if (event.key === 'Enter' || event.key === ' ') return;
+    }
+
+    const player = ytRef.current;
+    const key = event.key.toLowerCase();
+    const prevent = () => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
+    switch (key) {
+      case ' ':
+      case 'enter':
+      case 'ok':
+      case 'accept':
+      case 'select':
+      case 'k':
+        prevent();
+        if (player?.getPlayerState?.() === 1) player.pauseVideo();
+        else player?.playVideo();
+        break;
+      case 'f':
+        prevent();
+        toggleYouTubeFullscreen();
+        break;
+      case 'm':
+        prevent();
+        if (player?.isMuted?.()) player.unMute();
+        else player?.mute();
+        break;
+      case 'arrowleft':
+      case 'j':
+        prevent();
+        player?.seekTo(Math.max(0, (player.getCurrentTime?.() || 0) - 10), true);
+        break;
+      case 'arrowright':
+      case 'l':
+        prevent();
+        player?.seekTo(Math.min(player.getDuration?.() || Number.MAX_SAFE_INTEGER, (player.getCurrentTime?.() || 0) + 10), true);
+        break;
+      case 'pagedown':
+        prevent();
+        player?.seekTo(Math.max(0, (player.getCurrentTime?.() || 0) - 60), true);
+        break;
+      case 'pageup':
+        prevent();
+        player?.seekTo(Math.min(player.getDuration?.() || Number.MAX_SAFE_INTEGER, (player.getCurrentTime?.() || 0) + 60), true);
+        break;
+      case 'arrowup':
+        prevent();
+        player?.setVolume(Math.min(100, (player.getVolume?.() || 0) + 5));
+        player?.unMute();
+        break;
+      case 'arrowdown':
+        prevent();
+        player?.setVolume(Math.max(0, (player.getVolume?.() || 0) - 5));
+        break;
+      case 'escape':
+      case 'backspace':
+      case 'browserback':
+        prevent();
+        goBack();
+        break;
+    }
+  };
+
   // YouTube playback path — wrap with our own minimal overlay
   if (ytSource) {
     return (
-      <div className="w-full h-screen bg-black relative">
+      <div
+        ref={youtubeContainerRef}
+        tabIndex={0}
+        onKeyDown={handleYouTubeKeyDown}
+        className="w-full h-screen bg-black relative focus:outline-none"
+      >
         <YouTubePlayer
           videoId={ytSource.videoId}
           playlistId={ytSource.playlistId && !ytSource.videoId ? ytSource.playlistId : undefined}

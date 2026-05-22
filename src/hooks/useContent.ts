@@ -185,7 +185,7 @@ function mergeContent(groups: ContentItem[][]) {
 export function useContent() {
   const [dbContent, setDbContent] = useState<ContentItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const { shamsMovies } = useShamsMovies();
+  const { shamsMovies, shamsMoviesLoading } = useShamsMovies();
 
   useEffect(() => {
     const fetchContent = async () => {
@@ -247,6 +247,7 @@ export function useContent() {
     movies,
     series,
     loading,
+    shamsMoviesLoading,
     getById,
     search,
   };

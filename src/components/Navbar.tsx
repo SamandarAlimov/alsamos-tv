@@ -39,7 +39,11 @@ const Navbar = () => {
       >
         <div className="container mx-auto px-4 md:px-6 flex items-center justify-between">
           {/* Logo */}
-          <Link to="/" className="flex items-center gap-2">
+          <Link
+            to="/"
+            data-selected={location.pathname === '/' ? 'true' : undefined}
+            className="flex items-center gap-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          >
             <motion.div
               whileHover={{ scale: 1.05 }}
               className="flex items-center gap-2"
@@ -55,13 +59,19 @@ const Navbar = () => {
           </Link>
 
           {/* Desktop Navigation */}
-          <div className="hidden lg:flex items-center gap-1">
+          <div className="hidden lg:flex items-center gap-1" data-tv-row="main-navigation">
             {navLinks.map((link) => {
               const Icon = link.icon;
               const isActive = location.pathname === link.href;
               return (
-                <Link key={link.href} to={link.href}>
+                <Link
+                  key={link.href}
+                  to={link.href}
+                  data-selected={isActive ? 'true' : undefined}
+                  className="rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                >
                   <Button
+                    tabIndex={-1}
                     variant="ghost"
                     className={cn(
                       'gap-2 text-muted-foreground hover:text-foreground',
@@ -77,9 +87,13 @@ const Navbar = () => {
           </div>
 
           {/* Right Section */}
-          <div className="flex items-center gap-2">
-            <Link to="/search">
-              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
+          <div className="flex items-center gap-2" data-tv-row="navbar-actions">
+            <Link
+              to="/search"
+              data-selected={location.pathname === '/search' ? 'true' : undefined}
+              className="rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            >
+              <Button tabIndex={-1} variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
                 <Search className="w-5 h-5" />
               </Button>
             </Link>
@@ -89,8 +103,12 @@ const Navbar = () => {
               <span className="absolute top-1 right-1 w-2 h-2 bg-accent rounded-full" />
             </Button>
 
-            <Link to="/profile" className="hidden sm:block">
-              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
+            <Link
+              to="/profile"
+              data-selected={location.pathname === '/profile' ? 'true' : undefined}
+              className="hidden sm:block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            >
+              <Button tabIndex={-1} variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
                 <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary/50 to-primary flex items-center justify-center">
                   <User className="w-4 h-4 text-primary-foreground" />
                 </div>
@@ -121,7 +139,7 @@ const Navbar = () => {
             className="fixed top-16 left-0 right-0 z-40 glass border-t border-border lg:hidden"
           >
             <div className="container mx-auto px-4 py-4">
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-2" data-tv-row="mobile-navigation">
                 {navLinks.map((link) => {
                   const Icon = link.icon;
                   const isActive = location.pathname === link.href;
@@ -130,8 +148,11 @@ const Navbar = () => {
                       key={link.href}
                       to={link.href}
                       onClick={() => setIsMobileMenuOpen(false)}
+                      data-selected={isActive ? 'true' : undefined}
+                      className="rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                     >
                       <Button
+                        tabIndex={-1}
                         variant="ghost"
                         className={cn(
                           'w-full justify-start gap-3 text-muted-foreground hover:text-foreground',
@@ -150,8 +171,11 @@ const Navbar = () => {
                   <Link
                     to="/profile"
                     onClick={() => setIsMobileMenuOpen(false)}
+                    data-selected={location.pathname === '/profile' ? 'true' : undefined}
+                    className="rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                   >
                     <Button
+                      tabIndex={-1}
                       variant="ghost"
                       className={cn(
                         'w-full justify-start gap-3 text-muted-foreground hover:text-foreground',
@@ -165,8 +189,11 @@ const Navbar = () => {
                   <Link
                     to="/auth"
                     onClick={() => setIsMobileMenuOpen(false)}
+                    data-selected={location.pathname === '/auth' ? 'true' : undefined}
+                    className="rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                   >
                     <Button
+                      tabIndex={-1}
                       variant="ghost"
                       className="w-full justify-start gap-3 text-muted-foreground hover:text-foreground"
                     >

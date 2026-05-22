@@ -21,7 +21,7 @@ export function SourceFilter({
   className?: string;
 }) {
   return (
-    <div className={cn("flex gap-1.5 overflow-x-auto scrollbar-hide pb-1", className)}>
+    <div data-tv-row="source-filter" className={cn("flex gap-1.5 overflow-x-auto scrollbar-hide pb-1", className)}>
       {SOURCES.map(s => {
         const isActive = selected === s.id;
         const Icon = s.icon;

@@ -96,6 +96,56 @@ export function DVRTimeline({
     if (isDragging) setIsDragging(false);
   };
 
+  const seekBy = useCallback((seconds: number) => {
+    if (disabled) return;
+    const nextOffset = Math.max(0, Math.min(safeMaxRewindSeconds, clampedOffset + seconds));
+    onSeek(nextOffset);
+  }, [clampedOffset, disabled, onSeek, safeMaxRewindSeconds]);
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (disabled) return;
+    const smallStep = Math.max(10, Math.round(safeMaxRewindSeconds / 120));
+    const largeStep = Math.max(60, Math.round(safeMaxRewindSeconds / 24));
+
+    switch (event.key) {
+      case 'ArrowLeft':
+        event.preventDefault();
+        event.stopPropagation();
+        seekBy(smallStep);
+        break;
+      case 'ArrowRight':
+        event.preventDefault();
+        event.stopPropagation();
+        seekBy(-smallStep);
+        break;
+      case 'PageDown':
+        event.preventDefault();
+        event.stopPropagation();
+        seekBy(largeStep);
+        break;
+      case 'PageUp':
+        event.preventDefault();
+        event.stopPropagation();
+        seekBy(-largeStep);
+        break;
+      case 'Home':
+        event.preventDefault();
+        event.stopPropagation();
+        onSeek(safeMaxRewindSeconds);
+        break;
+      case 'End':
+      case 'Enter':
+      case ' ':
+      case 'OK':
+      case 'Accept':
+      case 'Select':
+        event.preventDefault();
+        event.stopPropagation();
+        onGoLive();
+        break;
+    }
+  };
+
   // Tick marks for hours
   const hourMarks = [];
   const markCount = safeMaxRewindSeconds >= 3600 ? Math.min(23, Math.floor(safeMaxRewindSeconds / 3600)) : 0;
@@ -129,14 +179,22 @@ export function DVRTimeline({
         {/* Track */}
         <div
           ref={trackRef}
+          role="slider"
+          tabIndex={disabled ? -1 : 0}
+          aria-label="Live timeline"
+          aria-valuemin={0}
+          aria-valuemax={safeMaxRewindSeconds}
+          aria-valuenow={Math.round(clampedOffset)}
+          aria-valuetext={disabled ? unavailableLabel : clampedOffset > 0 ? formatTimeAgo(clampedOffset) : 'Jonli'}
           className={cn(
-            "flex-1 relative h-6 flex items-center group",
+            "flex-1 relative h-6 flex items-center group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-black rounded-full",
             disabled ? "cursor-not-allowed opacity-55" : "cursor-pointer"
           )}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerLeave={handlePointerLeave}
+          onKeyDown={handleKeyDown}
           style={{ touchAction: 'none' }}
         >
           {/* Track Background */}

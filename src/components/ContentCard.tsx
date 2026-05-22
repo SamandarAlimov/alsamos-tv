@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { Play, Plus, Info, Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ContentItem } from '@/hooks/useContent';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 
 interface ContentCardProps {
@@ -15,6 +15,7 @@ interface ContentCardProps {
 export function ContentCard({ content, index = 0, variant = 'default' }: ContentCardProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
+  const navigate = useNavigate();
 
   useEffect(() => {
     setImageFailed(false);
@@ -39,9 +40,25 @@ export function ContentCard({ content, index = 0, variant = 'default' }: Content
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, delay: Math.min(index * 0.025, 0.25) }}
-      className={cn(variant !== 'grid' && 'flex-shrink-0', cardSizes[variant])}
+      tabIndex={0}
+      role="button"
+      aria-label={`${content.title}ni ko'rish`}
+      className={cn(
+        variant !== 'grid' && 'flex-shrink-0',
+        cardSizes[variant],
+        'rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background'
+      )}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      onFocusCapture={() => setIsHovered(true)}
+      onBlurCapture={() => setIsHovered(false)}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (['Enter', ' ', 'OK', 'Accept', 'Select'].includes(event.key)) {
+          event.preventDefault();
+          navigate(`/watch/${content.id}`, { state: { content } });
+        }
+      }}
     >
       <div className="relative group cursor-pointer">
         {/* Thumbnail */}
@@ -106,7 +123,7 @@ export function ContentCard({ content, index = 0, variant = 'default' }: Content
             )}
           >
             <div className="flex items-center gap-2">
-              <Link to={`/watch/${content.id}`}>
+              <Link to={`/watch/${content.id}`} state={{ content }}>
                 <Button variant="play" size="iconSm" className="rounded-full">
                   <Play className="w-4 h-4 fill-current" />
                 </Button>

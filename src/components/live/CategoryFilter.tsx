@@ -21,7 +21,7 @@ interface CategoryFilterProps {
 
 export function CategoryFilter({ categories, selected, onSelect, className }: CategoryFilterProps) {
   return (
-    <div className={cn("flex gap-2 overflow-x-auto scrollbar-hide pb-1", className)}>
+    <div data-tv-row="category-filter" className={cn("flex gap-2 overflow-x-auto scrollbar-hide pb-1", className)}>
       {categories.map((cat) => {
         const isActive = selected === cat;
         const Icon = CATEGORY_ICONS[cat] || Tv;

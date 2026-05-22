@@ -29,10 +29,12 @@ export function CategoryFilter({ categories, selected, onSelect, className }: Ca
         return (
           <motion.button
             key={cat}
+            type="button"
+            data-selected={isActive ? 'true' : undefined}
             whileTap={{ scale: 0.95 }}
             onClick={() => onSelect(cat)}
             className={cn(
-              "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all duration-300 flex-shrink-0",
+              "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all duration-300 flex-shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
               isActive 
                 ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20" 
                 : "glass-subtle text-muted-foreground hover:text-foreground hover:bg-[hsl(222_47%_15%/0.5)]"

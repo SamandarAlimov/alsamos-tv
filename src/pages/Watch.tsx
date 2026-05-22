@@ -22,6 +22,11 @@ type YouTubeSource = {
   playlistId?: string;
 };
 
+const QOCHQIN_VIDEO_ID = 'lA2Tg_QuPVQ';
+const QOCHQIN_VIDEO_URL = `https://www.youtube.com/watch?v=${QOCHQIN_VIDEO_ID}`;
+const QOCHQIN_BACKDROP_URL = `https://i.ytimg.com/vi/${QOCHQIN_VIDEO_ID}/sddefault.jpg`;
+const OLD_QOCHQIN_VIDEO_IDS = new Set(['AsuRRiXB0nU']);
+
 // Extract YouTube video and playlist IDs from common URL formats.
 function getYouTubeSource(url: string | null | undefined): YouTubeSource | null {
   if (!url) return null;
@@ -88,7 +93,16 @@ function getYouTubeId(value: string | null | undefined) {
 
 function normalizeWatchContent(content: ContentData): ContentData {
   const videoId = getYouTubeId(content.video_url);
-  if (normalizeSearchText(content.title) === 'otam' && videoId === '7XrD7KN1Zpk') {
+  const normalizedTitle = normalizeSearchText(content.title);
+  if (normalizedTitle === 'qochqin' || normalizedTitle.startsWith('qochqin ') || (!!videoId && OLD_QOCHQIN_VIDEO_IDS.has(videoId))) {
+    return {
+      ...content,
+      title: 'Qochqin',
+      backdrop_url: QOCHQIN_BACKDROP_URL,
+      video_url: QOCHQIN_VIDEO_URL,
+    };
+  }
+  if (normalizedTitle === 'otam' && videoId === '7XrD7KN1Zpk') {
     return { ...content, title: 'Sotqin' };
   }
   return content;

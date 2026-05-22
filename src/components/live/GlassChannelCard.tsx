@@ -24,9 +24,12 @@ function GlassChannelCardBase({
 
   return (
     <button
+      type="button"
       onClick={handleClick}
+      data-channel-id={channel.id}
+      data-selected={isSelected ? 'true' : undefined}
       className={cn(
-        "w-full text-left rounded-2xl transition-all duration-300 relative overflow-hidden group",
+        "w-full text-left rounded-2xl transition-all duration-300 relative overflow-hidden group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         compact ? "p-2.5" : "p-3",
         isSelected 
           ? "glass-card glass-glow border-primary/30" 

@@ -167,7 +167,6 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   const userAgent = getQueryValue(req, 'ua') || getQueryValue(req, 'userAgent') || getHeaderValue(req, 'user-agent') || DEFAULT_USER_AGENT;
   const rawMode = getQueryValue(req, 'raw') === '1' || getQueryValue(req, 'rewrite') === '0';
   const directHls = getQueryValue(req, 'direct') === '1';
-  const forceHls = getQueryValue(req, 'hls') === '1';
   const upstreamHeaders = new Headers();
   upstreamHeaders.set('user-agent', userAgent);
   upstreamHeaders.set('accept', getHeaderValue(req, 'accept') || '*/*');
@@ -200,7 +199,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   clearTimeout(timeout);
 
   const upstreamBase = new URL(upstream.url || target.toString());
-  const rewriteManifest = !rawMode && (forceHls || isHlsManifest(upstreamBase, upstream.headers.get('content-type')));
+  const rewriteManifest = !rawMode && isHlsManifest(upstreamBase, upstream.headers.get('content-type'));
   copyUpstreamHeaders(upstream, res, rewriteManifest);
   res.status(upstream.status);
 

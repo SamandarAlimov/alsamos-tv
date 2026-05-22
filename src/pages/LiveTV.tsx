@@ -23,7 +23,6 @@ import { Badge } from '@/components/ui/badge';
 import { Slider } from '@/components/ui/slider';
 import { Input } from '@/components/ui/input';
 import { DVRTimeline } from '@/components/DVRTimeline';
-import { GlassChannelCard } from '@/components/live/GlassChannelCard';
 import { CategoryFilter } from '@/components/live/CategoryFilter';
 
 import { VirtualChannelList } from '@/components/live/VirtualChannelList';
@@ -34,6 +33,97 @@ import { getStreamCandidates, getStreamHealth } from '@/utils/streams';
 
 const DEFAULT_DVR_WINDOW_SECONDS = 24 * 60 * 60;
 const MIN_DVR_WINDOW_SECONDS = 20;
+const TV_FOCUS_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',');
+
+function isTextEntryElement(element: EventTarget | null) {
+  if (!(element instanceof HTMLElement)) return false;
+  return element.tagName === 'INPUT' || element.tagName === 'TEXTAREA' || element.isContentEditable;
+}
+
+function isVisibleFocusable(element: HTMLElement) {
+  if (element.tabIndex < 0 || element.getAttribute('aria-hidden') === 'true') return false;
+  const style = window.getComputedStyle(element);
+  if (style.visibility === 'hidden' || style.display === 'none') return false;
+  const rect = element.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
+function getTvFocusableElements(root: HTMLElement) {
+  return Array.from(root.querySelectorAll<HTMLElement>(TV_FOCUS_SELECTOR)).filter(isVisibleFocusable);
+}
+
+function getCenter(rect: DOMRect) {
+  return {
+    x: rect.left + rect.width / 2,
+    y: rect.top + rect.height / 2,
+  };
+}
+
+function findSpatialFocusTarget(
+  elements: HTMLElement[],
+  current: HTMLElement | null,
+  direction: 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight'
+) {
+  if (elements.length === 0) return null;
+  const currentIndex = current ? elements.indexOf(current) : -1;
+
+  if (!current || currentIndex === -1) {
+    return elements.find((element) => element.dataset.selected === 'true') || elements[0];
+  }
+
+  const currentRect = current.getBoundingClientRect();
+  const currentCenter = getCenter(currentRect);
+  const candidates = elements
+    .filter((element) => element !== current)
+    .map((element) => {
+      const rect = element.getBoundingClientRect();
+      const center = getCenter(rect);
+      const deltaX = center.x - currentCenter.x;
+      const deltaY = center.y - currentCenter.y;
+
+      let primary = 0;
+      let cross = 0;
+      let inDirection = false;
+
+      if (direction === 'ArrowRight') {
+        primary = deltaX;
+        cross = Math.abs(deltaY);
+        inDirection = deltaX > 4;
+      } else if (direction === 'ArrowLeft') {
+        primary = -deltaX;
+        cross = Math.abs(deltaY);
+        inDirection = deltaX < -4;
+      } else if (direction === 'ArrowDown') {
+        primary = deltaY;
+        cross = Math.abs(deltaX);
+        inDirection = deltaY > 4;
+      } else {
+        primary = -deltaY;
+        cross = Math.abs(deltaX);
+        inDirection = deltaY < -4;
+      }
+
+      return {
+        element,
+        inDirection,
+        score: primary * 3 + cross,
+      };
+    })
+    .filter((item) => item.inDirection)
+    .sort((a, b) => a.score - b.score);
+
+  if (candidates[0]) return candidates[0].element;
+
+  const step = direction === 'ArrowRight' || direction === 'ArrowDown' ? 1 : -1;
+  return elements[(currentIndex + step + elements.length) % elements.length];
+}
 
 function isBrowserPlayableChannel(channel: Channel | null | undefined, failedIds = new Set<string>(), strict = false) {
   if (!channel || failedIds.has(channel.id)) return false;
@@ -73,6 +163,7 @@ const LiveTV = () => {
   const [playerRetryKey, setPlayerRetryKey] = useState(0);
   const [mobileTab, setMobileTab] = useState<'channels' | 'schedule'>('channels');
   const videoRef = useRef<HTMLVideoElement>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const youtubePlayerRef = useRef<YTPlayer | null>(null);
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
@@ -307,11 +398,43 @@ const LiveTV = () => {
     } catch (err) { console.warn('Fullscreen failed:', err); }
   };
 
-  // Keyboard shortcuts (desktop)
+  const moveTvFocus = useCallback((key: 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight') => {
+    const root = pageRef.current;
+    if (!root) return false;
+
+    const elements = getTvFocusableElements(root);
+    if (elements.length === 0) return false;
+
+    const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const current = active && root.contains(active) ? active : null;
+    const target = findSpatialFocusTarget(elements, current, key);
+    if (!target) return false;
+
+    target.focus({ preventScroll: true });
+    target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    revealControls(5000, true);
+    return true;
+  }, [revealControls]);
+
+  // Keyboard and Smart TV remote navigation
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      const activeInsidePage = !!(active && pageRef.current?.contains(active));
+      const textEntry = isTextEntryElement(e.target);
+      const isArrowKey = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key);
+
+      if (isArrowKey) {
+        if (textEntry && e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+        if (moveTvFocus(e.key as 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight')) {
+          e.preventDefault();
+          return;
+        }
+      }
+
+      if (textEntry) return;
+      if (activeInsidePage && active?.matches(TV_FOCUS_SELECTOR) && (e.key === 'Enter' || e.key === ' ')) return;
+
       switch (e.key.toLowerCase()) {
         case ' ':
         case 'k':
@@ -320,14 +443,18 @@ const LiveTV = () => {
           e.preventDefault(); toggleMute(); break;
         case 'f':
           e.preventDefault(); toggleFullscreen(); break;
-        case 'arrowup':
+        case '+':
+        case '=':
           e.preventDefault(); handleVolumeChange([Math.min(100, volume + 5)]); break;
-        case 'arrowdown':
+        case '-':
+        case '_':
           e.preventDefault(); handleVolumeChange([Math.max(0, volume - 5)]); break;
-        case 'arrowright':
+        case 'pageup':
+        case 'channelup':
         case 'n':
           e.preventDefault(); goToNextChannel(); break;
-        case 'arrowleft':
+        case 'pagedown':
+        case 'channeldown':
         case 'p':
           e.preventDefault(); goToPrevChannel(); break;
       }
@@ -335,7 +462,7 @@ const LiveTV = () => {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPlaying, isMuted, volume, currentIndex, channels.length, selectedChannel?.id]);
+  }, [isPlaying, isMuted, volume, currentIndex, channels.length, selectedChannel?.id, moveTvFocus]);
 
   const handleChannelSelect = useCallback((channel: Channel) => {
     selectChannelForPlayback(channel);
@@ -508,7 +635,7 @@ const LiveTV = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col overflow-x-hidden">
+    <div ref={pageRef} className="min-h-screen bg-background flex flex-col overflow-x-hidden">
       <Navbar />
 
       <div className="flex-1 pt-14 lg:pt-20 overflow-hidden">
@@ -843,9 +970,10 @@ const LiveTV = () => {
               {/* Mobile Tabs - Channels / Schedule */}
               <div className="flex items-center gap-1 mx-3 mt-3 p-1 rounded-xl glass-subtle">
                 <button
+                  type="button"
                   onClick={() => setMobileTab('channels')}
                   className={cn(
-                    "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all",
+                    "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
                     mobileTab === 'channels' 
                       ? "bg-primary/20 text-primary shadow-sm" 
                       : "text-muted-foreground hover:text-foreground"
@@ -855,9 +983,10 @@ const LiveTV = () => {
                   Kanallar
                 </button>
                 <button
+                  type="button"
                   onClick={() => setMobileTab('schedule')}
                   className={cn(
-                    "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all",
+                    "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
                     mobileTab === 'schedule' 
                       ? "bg-primary/20 text-primary shadow-sm" 
                       : "text-muted-foreground hover:text-foreground"

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import type { ContentItem } from './useContent';
-import { getLocalStreamProxyUrl } from '@/utils/streams';
+import { getLocalStreamProxyUrl, isHlsUrl } from '@/utils/streams';
 
 const SHAMS_URLS = ['https://iptvshams.ru/ShamsTV.m3u8', 'http://iptvshams.ru/ShamsTV.m3u8'];
-const CACHE_KEY = 'shams_movies_cache_v1';
+const CACHE_KEY = 'shams_movies_cache_v2';
 const CACHE_TTL = 1000 * 60 * 60 * 6;
 const FETCH_TIMEOUT_MS = 12000;
 const MAX_MOVIES = 240;
@@ -25,7 +25,11 @@ function getImageUrl(url: string | null) {
 }
 
 function getVideoUrl(url: string) {
-  return getLocalStreamProxyUrl(url, { forceHls: true, preferDirectHls: true }) || url;
+  const isHls = isHlsUrl(url);
+  return getLocalStreamProxyUrl(url, {
+    forceHls: isHls,
+    preferDirectHls: false,
+  }) || url;
 }
 
 function normalizeDuration(seconds: number) {

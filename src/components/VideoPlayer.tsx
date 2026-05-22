@@ -73,24 +73,34 @@ export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressU
   const [playbackError, setPlaybackError] = useState(false);
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
   const progressUpdateRef = useRef<ReturnType<typeof setTimeout>>();
+  const hlsRetryTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const hlsRecoveryAttemptsRef = useRef(0);
+
+  const isLikelyHlsSource = useCallback((value: string) => {
+    if (/\.m3u8(\?|$)/i.test(value)) return true;
+
+    try {
+      const parsed = new URL(value, window.location.origin);
+      const target = parsed.searchParams.get('url');
+      return !!target && /\.m3u8(\?|$)/i.test(target);
+    } catch {
+      return false;
+    }
+  }, []);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !src) return;
 
     setPlaybackError(false);
+    hlsRecoveryAttemptsRef.current = 0;
+    if (hlsRetryTimerRef.current) clearTimeout(hlsRetryTimerRef.current);
     if (hlsRef.current) {
       hlsRef.current.destroy();
       hlsRef.current = null;
     }
 
-    const isHls = /\.m3u8(\?|$)/i.test(src) || (() => {
-      try {
-        return new URL(src, window.location.origin).searchParams.get('hls') === '1';
-      } catch {
-        return false;
-      }
-    })();
+    const isHls = isLikelyHlsSource(src);
     if (isHls && Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
@@ -106,22 +116,38 @@ export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressU
       hls.loadSource(src);
       hls.attachMedia(video);
       hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (data.fatal) {
-          setPlaybackError(true);
-          setIsBuffering(false);
+        if (!data.fatal) return;
+
+        hlsRecoveryAttemptsRef.current += 1;
+        if (data.type === Hls.ErrorTypes.MEDIA_ERROR && hlsRecoveryAttemptsRef.current <= 4) {
+          hls.recoverMediaError();
+          return;
         }
+
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR && hlsRecoveryAttemptsRef.current <= 8) {
+          if (hlsRetryTimerRef.current) clearTimeout(hlsRetryTimerRef.current);
+          hlsRetryTimerRef.current = window.setTimeout(
+            () => hls.startLoad(-1),
+            Math.min(5000, 700 + hlsRecoveryAttemptsRef.current * 600)
+          );
+          return;
+        }
+
+        setPlaybackError(true);
+        setIsBuffering(false);
       });
     } else {
       video.src = src;
     }
 
     return () => {
+      if (hlsRetryTimerRef.current) clearTimeout(hlsRetryTimerRef.current);
       if (hlsRef.current) {
         hlsRef.current.destroy();
         hlsRef.current = null;
       }
     };
-  }, [src]);
+  }, [isLikelyHlsSource, src]);
 
   // Update buffered progress
   const updateBuffered = useCallback(() => {

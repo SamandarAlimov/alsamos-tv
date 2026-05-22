@@ -62,6 +62,10 @@ function youtubeImage(videoId: string, quality: 'hqdefault' | 'sddefault') {
   return `https://i.ytimg.com/vi/${videoId}/${quality}.jpg`;
 }
 
+const QOCHQIN_VIDEO_ID = 'lA2Tg_QuPVQ';
+const QOCHQIN_VIDEO_URL = `https://www.youtube.com/watch?v=${QOCHQIN_VIDEO_ID}`;
+const OLD_QOCHQIN_VIDEO_IDS = new Set(['AsuRRiXB0nU']);
+
 function titleArtwork(title: string, wide = false) {
   const escapedTitle = title
     .replace(/&/g, '&amp;')
@@ -120,24 +124,36 @@ function normalizeContentImages(row: any, title: string) {
 
 function mapDbToContent(row: any): ContentItem {
   const videoId = getYouTubeId(row.video_url) || getYouTubeId(row.thumbnail_url) || getYouTubeId(row.backdrop_url);
-  const shouldRenameSotqin = normalizeSearchText(row.title) === 'otam' && videoId === '7XrD7KN1Zpk';
-  const title = shouldRenameSotqin ? 'Sotqin' : row.title;
-  const images = normalizeContentImages(row, title);
+  const normalizedTitle = normalizeSearchText(row.title);
+  const shouldFixQochqin =
+    normalizedTitle === 'qochqin' ||
+    normalizedTitle.startsWith('qochqin ') ||
+    (!!videoId && OLD_QOCHQIN_VIDEO_IDS.has(videoId));
+  const shouldRenameSotqin = normalizedTitle === 'otam' && videoId === '7XrD7KN1Zpk';
+  const title = shouldFixQochqin ? 'Qochqin' : shouldRenameSotqin ? 'Sotqin' : row.title;
+  const images = shouldFixQochqin
+    ? {
+        thumbnail: youtubeImage(QOCHQIN_VIDEO_ID, 'hqdefault'),
+        backdrop: youtubeImage(QOCHQIN_VIDEO_ID, 'sddefault'),
+      }
+    : normalizeContentImages(row, title);
 
   return {
     id: row.id,
     title,
-    description: shouldRenameSotqin
-      ? "Ishonch, xiyonat va oilaviy qadriyatlar haqida ta'sirli o'zbek filmi."
-      : row.description || '',
+    description: shouldFixQochqin
+      ? "Adolat izlab qochqinga aylangan yigitning hayoti haqida dramatik triller."
+      : shouldRenameSotqin
+        ? "Ishonch, xiyonat va oilaviy qadriyatlar haqida ta'sirli o'zbek filmi."
+        : row.description || '',
     thumbnail: images.thumbnail,
     backdrop: images.backdrop,
     trailer: row.trailer_url || undefined,
-    year: row.release_year || new Date().getFullYear(),
-    rating: row.rating || 'NR',
-    duration: formatDuration(row.duration_seconds),
-    genres: row.genres || [],
-    type: row.type === 'documentary' || row.type === 'live' ? 'movie' : row.type,
+    year: shouldFixQochqin ? 2015 : row.release_year || new Date().getFullYear(),
+    rating: shouldFixQochqin ? 'PG-13' : row.rating || 'NR',
+    duration: shouldFixQochqin ? '1h 48m' : formatDuration(row.duration_seconds),
+    genres: shouldFixQochqin ? ['Drama', 'Triller', "O'zbek kino"] : row.genres || [],
+    type: shouldFixQochqin ? 'movie' : row.type === 'documentary' || row.type === 'live' ? 'movie' : row.type,
     seasons: row.seasons || undefined,
     episodes: row.episodes || undefined,
     cast: row.cast_members || undefined,
@@ -145,8 +161,8 @@ function mapDbToContent(row: any): ContentItem {
     aiScore: row.ai_score || undefined,
     isOriginal: row.is_original || false,
     isNew: false,
-    isTrending: row.is_trending || false,
-    videoUrl: row.video_url || undefined,
+    isTrending: shouldFixQochqin ? true : row.is_trending || false,
+    videoUrl: shouldFixQochqin ? QOCHQIN_VIDEO_URL : row.video_url || undefined,
   };
 }
 
@@ -199,7 +215,7 @@ export function useContent() {
   }, []);
 
   const allContent = useMemo(
-    () => mergeContent([dbContent, shamsMovies, fallbackContent]),
+    () => mergeContent([dbContent, fallbackContent, shamsMovies]),
     [dbContent, shamsMovies]
   );
 

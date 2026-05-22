@@ -29,10 +29,12 @@ export function SourceFilter({
         return (
           <motion.button
             key={s.id}
+            type="button"
+            data-selected={isActive ? 'true' : undefined}
             whileTap={{ scale: 0.95 }}
             onClick={() => onSelect(s.id)}
             className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold whitespace-nowrap transition-all flex-shrink-0",
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold whitespace-nowrap transition-all flex-shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
               isActive
                 ? "bg-primary text-primary-foreground shadow-md shadow-primary/25"
                 : "glass-subtle text-muted-foreground hover:text-foreground"

@@ -21,6 +21,10 @@ export function ContentCard({ content, index = 0, variant = 'default' }: Content
     setImageFailed(false);
   }, [content.thumbnail]);
 
+  const openInfo = () => {
+    navigate(`/title/${content.id}`, { state: { content } });
+  };
+
   const cardSizes = {
     default: 'w-[160px] sm:w-[220px] md:w-[280px] lg:w-[320px]',
     large: 'w-[200px] sm:w-[280px] md:w-[320px] lg:w-[400px]',
@@ -56,11 +60,17 @@ export function ContentCard({ content, index = 0, variant = 'default' }: Content
         if (event.target !== event.currentTarget) return;
         if (['Enter', ' ', 'OK', 'Accept', 'Select'].includes(event.key)) {
           event.preventDefault();
-          navigate(`/watch/${content.id}`, { state: { content } });
+          openInfo();
         }
       }}
     >
-      <div className="relative group cursor-pointer">
+      <div
+        className="relative group cursor-pointer"
+        onClick={(event) => {
+          if ((event.target as HTMLElement).closest('a, button')) return;
+          openInfo();
+        }}
+      >
         {/* Thumbnail */}
         <div
           className={cn(
@@ -132,7 +142,7 @@ export function ContentCard({ content, index = 0, variant = 'default' }: Content
                 <Plus className="w-4 h-4" />
               </Button>
             </div>
-            <Link to={`/title/${content.id}`}>
+            <Link to={`/title/${content.id}`} state={{ content }}>
               <Button variant="glass" size="iconSm" className="rounded-full">
                 <Info className="w-4 h-4" />
               </Button>

@@ -257,6 +257,7 @@ const LiveTV = () => {
   const currentProgram = selectedChannel ? getCurrentProgram(selectedChannel.id) : undefined;
   const channelSchedule = selectedChannel ? getChannelSchedule(selectedChannel.id) : [];
   const currentIndex = selectedChannel ? Math.max(0, channels.findIndex(c => c.id === selectedChannel.id)) : 0;
+  const tvGuidePath = selectedChannel ? `/tv-guide?channel=${encodeURIComponent(selectedChannel.id)}` : '/tv-guide';
 
   const formatViewers = (num: number) => {
     if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
@@ -936,7 +937,7 @@ const LiveTV = () => {
                           </div>
                         </div>
                       )}
-                      <Link to="/tv-guide" className="block">
+                      <Link to={tvGuidePath} className="block">
                         <Button variant="outline" className="w-full gap-2 glass-subtle border-white/10 text-white hover:bg-white/10 text-xs md:text-sm">
                           <Grid3X3 className="w-4 h-4" />TV Guide
                         </Button>
@@ -1082,7 +1083,7 @@ const LiveTV = () => {
                       <h4 className="font-display font-semibold text-xs text-foreground">
                         {selectedChannel?.name} — Bugungi dastur
                       </h4>
-                      <Link to="/tv-guide">
+                      <Link to={tvGuidePath}>
                         <Button variant="ghost" size="sm" className="h-7 text-[10px] gap-1 text-primary hover:text-primary">
                           <Grid3X3 className="w-3 h-3" />
                           TV Guide
@@ -1138,7 +1139,7 @@ const LiveTV = () => {
                       <div className="text-center py-10 glass-subtle rounded-2xl">
                         <Clock className="w-8 h-8 mx-auto text-muted-foreground/30 mb-2" />
                         <p className="text-xs text-muted-foreground">Dastur jadvali mavjud emas</p>
-                        <Link to="/tv-guide">
+                        <Link to={tvGuidePath}>
                           <Button variant="ghost" size="sm" className="mt-2 text-[10px] text-primary">
                             TV Guide'ga o'tish
                           </Button>
@@ -1161,7 +1162,7 @@ const LiveTV = () => {
                 </div>
                 {selectedChannel?.category && (<><div className="w-px h-4 bg-border" /><Badge variant="secondary" className="glass-subtle border-0">{selectedChannel.category}</Badge></>)}
               </div>
-              <Link to="/tv-guide"><Button variant="ghost" size="sm" className="gap-2"><Grid3X3 className="w-4 h-4" />TV Guide</Button></Link>
+              <Link to={tvGuidePath}><Button variant="ghost" size="sm" className="gap-2"><Grid3X3 className="w-4 h-4" />TV Guide</Button></Link>
             </div>
           </div>
 

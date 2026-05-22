@@ -3,7 +3,7 @@ import type { Channel } from './useChannels';
 import { getStreamCandidates, getStreamHealth, isHlsUrl, isTransportStreamUrl } from '@/utils/streams';
 
 const SHAMS_URLS = ['http://iptvshams.ru/ShamsTV.m3u8', 'https://iptvshams.ru/ShamsTV.m3u8'];
-const CACHE_KEY = 'shams_channels_cache_v7';
+const CACHE_KEY = 'shams_channels_cache_v8';
 const CACHE_TTL = 1000 * 60 * 60 * 6; // 6h
 const FETCH_TIMEOUT_MS = 10000;
 
@@ -63,9 +63,11 @@ function parseM3U(text: string): Channel[] {
       if (url && /^https?:\/\//i.test(url)) {
         const streamUrl = url;
         const cat = GROUP_TO_CATEGORY[group] || group;
-        const streamType = isHlsUrl(streamUrl) || /\/play\/.+\/ts(?:\?|$)/i.test(streamUrl)
+        const streamType = isHlsUrl(streamUrl)
           ? 'hls'
-          : isTransportStreamUrl(streamUrl) ? 'mpegts' : 'mpegts';
+          : isTransportStreamUrl(streamUrl) || /\/play\/.+\/ts(?:\?|$)/i.test(streamUrl)
+            ? 'mpegts'
+            : 'mpegts';
         const streamHealth = getStreamHealth(streamUrl, streamType);
         const playableCandidates = getStreamCandidates(streamUrl, {
           referer: httpReferrer,

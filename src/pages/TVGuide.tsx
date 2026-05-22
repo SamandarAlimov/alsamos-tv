@@ -12,7 +12,7 @@ import { useChannels, Channel, Schedule } from '@/hooks/useChannels';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { format, addHours, startOfHour, isWithinInterval, differenceInMinutes } from 'date-fns';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { CategoryFilter } from '@/components/live/CategoryFilter';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -20,8 +20,10 @@ import { rankedSearch } from '@/utils/search';
 
 const TVGuide = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const isMobile = useIsMobile();
   const { channels, loading, getChannelSchedule } = useChannels();
+  const requestedChannelId = searchParams.get('channel');
   const [currentTime, setCurrentTime] = useState(new Date());
   const [timeOffset, setTimeOffset] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
@@ -80,7 +82,9 @@ const TVGuide = () => {
     return start < slotEnd && end > baseTime;
   }, [baseTime]);
 
-  const handleWatchChannel = () => navigate('/live');
+  const handleWatchChannel = (channel?: Channel) => {
+    navigate(channel ? `/live/${encodeURIComponent(channel.id)}` : '/live');
+  };
 
   const toggleReminder = (scheduleId: string, programTitle: string) => {
     setReminders(prev => {
@@ -116,14 +120,42 @@ const TVGuide = () => {
 
   useEffect(() => {
     setVisibleCount(guidePageSize);
-    scrollRef.current?.scrollTo({ top: 0 });
-  }, [activeSearchQuery, guidePageSize, selectedCategory]);
+    if (!requestedChannelId) scrollRef.current?.scrollTo({ top: 0 });
+  }, [activeSearchQuery, guidePageSize, requestedChannelId, selectedCategory]);
+
+  useEffect(() => {
+    if (!requestedChannelId) return;
+    setSearchQuery('');
+    setSelectedCategory('All');
+    setExpandedChannel(requestedChannelId);
+  }, [requestedChannelId]);
 
   const visibleChannels = useMemo(
     () => filteredChannels.slice(0, visibleCount),
     [filteredChannels, visibleCount]
   );
   const hiddenChannelCount = Math.max(0, filteredChannels.length - visibleChannels.length);
+
+  useEffect(() => {
+    if (!requestedChannelId || filteredChannels.length === 0) return;
+    const requestedIndex = filteredChannels.findIndex((channel) => channel.id === requestedChannelId);
+    if (requestedIndex < 0) return;
+    const neededCount = Math.min(filteredChannels.length, Math.max(guidePageSize, requestedIndex + 8));
+    setVisibleCount((count) => Math.max(count, neededCount));
+  }, [filteredChannels, guidePageSize, requestedChannelId]);
+
+  useEffect(() => {
+    if (!requestedChannelId) return;
+    const frame = window.requestAnimationFrame(() => {
+      const row = Array.from(document.querySelectorAll<HTMLElement>('[data-guide-channel-id]'))
+        .find((element) => element.dataset.guideChannelId === requestedChannelId);
+      if (!row) return;
+      row.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
+      const focusTarget = row.querySelector<HTMLElement>('button, a[href], [tabindex]:not([tabindex="-1"])');
+      focusTarget?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [requestedChannelId, visibleChannels]);
 
   const currentTimePosition = (() => {
     const mins = differenceInMinutes(currentTime, baseTime);
@@ -226,6 +258,7 @@ const TVGuide = () => {
               toggleReminder={toggleReminder}
               handleWatchChannel={handleWatchChannel}
               getProgramProgress={getProgramProgress}
+              highlightChannelId={requestedChannelId || undefined}
             />
           ) : (
             /* Desktop: Horizontal EPG Grid */
@@ -243,6 +276,7 @@ const TVGuide = () => {
               toggleReminder={toggleReminder}
               handleWatchChannel={handleWatchChannel}
               currentTime={currentTime}
+              highlightChannelId={requestedChannelId || undefined}
             />
           )}
 
@@ -285,14 +319,15 @@ interface MobileEPGProps {
   setExpandedChannel: (id: string | null) => void;
   reminders: Set<string>;
   toggleReminder: (id: string, title: string) => void;
-  handleWatchChannel: () => void;
+  handleWatchChannel: (channel?: Channel) => void;
   getProgramProgress: (s: Schedule) => number;
+  highlightChannelId?: string;
 }
 
 const MobileEPG = ({
   channels, getScheduleForChannel, isCurrentlyPlaying, isScheduleVisible,
   currentTime, expandedChannel, setExpandedChannel, reminders, toggleReminder,
-  handleWatchChannel, getProgramProgress
+  handleWatchChannel, getProgramProgress, highlightChannelId
 }: MobileEPGProps) => {
   if (channels.length === 0) {
     return (
@@ -318,7 +353,12 @@ const MobileEPG = ({
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: index * 0.03 }}
-            className="glass-card rounded-2xl overflow-hidden"
+            data-guide-channel-id={channel.id}
+            tabIndex={-1}
+            className={cn(
+              "glass-card rounded-2xl overflow-hidden",
+              channel.id === highlightChannelId && "ring-2 ring-primary/70 bg-primary/10 shadow-lg shadow-primary/10"
+            )}
           >
             {/* Channel header + current program */}
             <button
@@ -361,7 +401,7 @@ const MobileEPG = ({
 
               {/* Expand arrow + watch button */}
               <div className="flex items-center gap-1.5 flex-shrink-0">
-                <Button size="icon" variant="ghost" className="w-8 h-8 glass-subtle" onClick={(e) => { e.stopPropagation(); handleWatchChannel(); }}>
+                <Button size="icon" variant="ghost" className="w-8 h-8 glass-subtle" onClick={(e) => { e.stopPropagation(); handleWatchChannel(channel); }}>
                   <Tv className="w-3.5 h-3.5 text-primary" />
                 </Button>
                 <ChevronDown className={cn("w-4 h-4 text-muted-foreground transition-transform", isExpanded && "rotate-180")} />
@@ -386,7 +426,7 @@ const MobileEPG = ({
                         isFuture={false}
                         hasReminder={reminders.has(currentProgram.id)}
                         toggleReminder={toggleReminder}
-                        handleWatch={handleWatchChannel}
+                        handleWatch={() => handleWatchChannel(channel)}
                       />
                     )}
                     {upcomingPrograms.map(s => (
@@ -397,7 +437,7 @@ const MobileEPG = ({
                         isFuture={true}
                         hasReminder={reminders.has(s.id)}
                         toggleReminder={toggleReminder}
-                        handleWatch={handleWatchChannel}
+                        handleWatch={() => handleWatchChannel(channel)}
                       />
                     ))}
                     {!currentProgram && upcomingPrograms.length === 0 && (
@@ -475,14 +515,15 @@ interface DesktopEPGProps {
   currentTimePosition: number;
   reminders: Set<string>;
   toggleReminder: (id: string, title: string) => void;
-  handleWatchChannel: () => void;
+  handleWatchChannel: (channel?: Channel) => void;
   currentTime: Date;
+  highlightChannelId?: string;
 }
 
 const DesktopEPG = ({
   channels, timeSlots, timelineRef, scrollRef, getScheduleForChannel,
   isScheduleVisible, isCurrentlyPlaying, getSchedulePosition,
-  currentTimePosition, reminders, toggleReminder, handleWatchChannel, currentTime
+  currentTimePosition, reminders, toggleReminder, handleWatchChannel, currentTime, highlightChannelId
 }: DesktopEPGProps) => (
   <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
     className="rounded-2xl overflow-hidden glass-card shadow-2xl">
@@ -513,8 +554,13 @@ const DesktopEPG = ({
           const channelSchedules = getScheduleForChannel(channel.id).filter(isScheduleVisible);
           return (
             <motion.div key={channel.id} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: index * 0.02 }}
-              className="flex border-b border-white/5 last:border-b-0 group/row hover:bg-white/[0.02] transition-colors">
-              <button onClick={handleWatchChannel}
+              data-guide-channel-id={channel.id}
+              tabIndex={-1}
+              className={cn(
+                "flex border-b border-white/5 last:border-b-0 group/row hover:bg-white/[0.02] transition-colors",
+                channel.id === highlightChannelId && "bg-primary/10 ring-1 ring-inset ring-primary/50"
+              )}>
+              <button onClick={() => handleWatchChannel(channel)}
                 className="w-48 flex-shrink-0 p-4 border-r border-white/5 flex items-center gap-3 hover:bg-white/[0.03] transition-colors text-left sticky left-0 glass-strong z-10">
                 <div className="w-10 h-10 rounded-xl glass flex items-center justify-center overflow-hidden flex-shrink-0">
                   {channel.logo_url ? (
@@ -558,7 +604,7 @@ const DesktopEPG = ({
                           : "glass-card hover:border-white/15"
                       )}
                       style={{ left: `${left}px`, width: `${width}px` }}
-                      onClick={handleWatchChannel}>
+                      onClick={() => handleWatchChannel(channel)}>
                       <div className="flex items-start justify-between gap-2 h-full">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">

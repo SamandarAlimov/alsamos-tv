@@ -3,7 +3,7 @@ import type { ContentItem } from './useContent';
 import { getLocalStreamProxyUrl, isHlsUrl } from '@/utils/streams';
 
 const SHAMS_URLS = ['https://iptvshams.ru/ShamsTV.m3u8', 'http://iptvshams.ru/ShamsTV.m3u8'];
-const CACHE_KEY = 'shams_movies_cache_v2';
+const CACHE_KEY = 'shams_movies_cache_v3';
 const CACHE_TTL = 1000 * 60 * 60 * 6;
 const FETCH_TIMEOUT_MS = 12000;
 const MAX_MOVIES = 240;

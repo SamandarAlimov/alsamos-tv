@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { cn } from '@/lib/utils';
 import Hls from 'hls.js';
+import { isHlsUrl, isTransportStreamUrl } from '@/utils/streams';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -54,10 +55,84 @@ const qualityOptions: QualityOption[] = [
 
 const playbackSpeeds = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
+type MpegTsPlayer = {
+  attachMediaElement: (mediaElement: HTMLMediaElement) => void;
+  load: () => void;
+  play: () => Promise<void> | void;
+  unload: () => void;
+  detachMediaElement: () => void;
+  destroy: () => void;
+  on: (event: string, handler: (...args: unknown[]) => void) => void;
+};
+
+type MpegTsApi = {
+  isSupported: () => boolean;
+  createPlayer: (
+    mediaDataSource: Record<string, unknown>,
+    config?: Record<string, unknown>
+  ) => MpegTsPlayer;
+  Events: {
+    ERROR: string;
+  };
+};
+
+type WindowWithMpegTs = Window & { mpegts?: MpegTsApi };
+
+let mpegTsLoader: Promise<MpegTsApi | null> | null = null;
+const MPEG_TS_SCRIPT_SOURCES = [
+  'https://cdn.jsdelivr.net/npm/mpegts.js@1.8.0/dist/mpegts.min.js',
+  'https://unpkg.com/mpegts.js@1.8.0/dist/mpegts.min.js',
+];
+
+function loadMpegTs() {
+  if (typeof window === 'undefined') return Promise.resolve(null);
+  const browserWindow = window as WindowWithMpegTs;
+  if (browserWindow.mpegts) return Promise.resolve(browserWindow.mpegts);
+  if (mpegTsLoader) return mpegTsLoader;
+
+  mpegTsLoader = new Promise((resolve) => {
+    let index = 0;
+
+    const tryNext = () => {
+      if (browserWindow.mpegts) {
+        resolve(browserWindow.mpegts);
+        return;
+      }
+
+      const source = MPEG_TS_SCRIPT_SOURCES[index];
+      if (!source) {
+        resolve(null);
+        return;
+      }
+      index += 1;
+
+      const script = document.createElement('script');
+      script.src = source;
+      script.async = true;
+      script.crossOrigin = 'anonymous';
+      script.dataset.mpegtsPlayer = 'true';
+      script.onload = () => {
+        if (browserWindow.mpegts) resolve(browserWindow.mpegts);
+        else tryNext();
+      };
+      script.onerror = () => {
+        script.remove();
+        tryNext();
+      };
+      document.head.appendChild(script);
+    };
+
+    tryNext();
+  });
+
+  return mpegTsLoader;
+}
+
 export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressUpdate }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
+  const mpegTsRef = useRef<MpegTsPlayer | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -74,33 +149,46 @@ export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressU
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
   const progressUpdateRef = useRef<ReturnType<typeof setTimeout>>();
   const hlsRetryTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const mpegTsRetryTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const hlsRecoveryAttemptsRef = useRef(0);
+  const mpegTsRecoveryAttemptsRef = useRef(0);
 
   const isLikelyHlsSource = useCallback((value: string) => {
-    if (/\.m3u8(\?|$)/i.test(value)) return true;
-
-    try {
-      const parsed = new URL(value, window.location.origin);
-      const target = parsed.searchParams.get('url');
-      return !!target && /\.m3u8(\?|$)/i.test(target);
-    } catch {
-      return false;
-    }
+    return isHlsUrl(value);
   }, []);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !src) return;
 
+    let cancelled = false;
+
+    const destroyMpegTs = () => {
+      if (!mpegTsRef.current) return;
+      try {
+        mpegTsRef.current.unload();
+        mpegTsRef.current.detachMediaElement();
+        mpegTsRef.current.destroy();
+      } catch {}
+      mpegTsRef.current = null;
+    };
+
     setPlaybackError(false);
+    setIsBuffering(true);
     hlsRecoveryAttemptsRef.current = 0;
+    mpegTsRecoveryAttemptsRef.current = 0;
     if (hlsRetryTimerRef.current) clearTimeout(hlsRetryTimerRef.current);
+    if (mpegTsRetryTimerRef.current) clearTimeout(mpegTsRetryTimerRef.current);
     if (hlsRef.current) {
       hlsRef.current.destroy();
       hlsRef.current = null;
     }
+    destroyMpegTs();
+    video.removeAttribute('src');
+    video.load();
 
     const isHls = isLikelyHlsSource(src);
+    const isMpegTs = isTransportStreamUrl(src);
     if (isHls && Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
@@ -115,6 +203,7 @@ export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressU
       hlsRef.current = hls;
       hls.loadSource(src);
       hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => setIsBuffering(false));
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (!data.fatal) return;
 
@@ -136,16 +225,78 @@ export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressU
         setPlaybackError(true);
         setIsBuffering(false);
       });
+    } else if (isMpegTs) {
+      loadMpegTs().then((mpegts) => {
+        if (cancelled) return;
+
+        if (!mpegts?.isSupported()) {
+          video.src = src;
+          setIsBuffering(false);
+          return;
+        }
+
+        const player = mpegts.createPlayer({
+          type: 'mpegts',
+          isLive: false,
+          url: src,
+          cors: true,
+          withCredentials: false,
+          hasAudio: true,
+          hasVideo: true,
+        }, {
+          enableWorker: true,
+          enableStashBuffer: true,
+          stashInitialSize: 384,
+          lazyLoad: false,
+          autoCleanupSourceBuffer: true,
+          autoCleanupMaxBackwardDuration: 90,
+          autoCleanupMinBackwardDuration: 30,
+          reuseRedirectedURL: true,
+        });
+
+        mpegTsRef.current = player;
+        player.attachMediaElement(video);
+        player.load();
+        setIsBuffering(false);
+
+        player.on(mpegts.Events.ERROR, () => {
+          mpegTsRecoveryAttemptsRef.current += 1;
+          if (mpegTsRecoveryAttemptsRef.current <= 5) {
+            if (mpegTsRetryTimerRef.current) clearTimeout(mpegTsRetryTimerRef.current);
+            mpegTsRetryTimerRef.current = window.setTimeout(() => {
+              try {
+                player.unload();
+                player.load();
+                if (!video.paused) {
+                  const playResult = player.play();
+                  if (playResult && typeof playResult.catch === 'function') playResult.catch(() => {});
+                }
+              } catch {
+                setPlaybackError(true);
+                setIsBuffering(false);
+              }
+            }, Math.min(5000, 700 + mpegTsRecoveryAttemptsRef.current * 700));
+            return;
+          }
+
+          setPlaybackError(true);
+          setIsBuffering(false);
+        });
+      });
     } else {
       video.src = src;
+      setIsBuffering(false);
     }
 
     return () => {
+      cancelled = true;
       if (hlsRetryTimerRef.current) clearTimeout(hlsRetryTimerRef.current);
+      if (mpegTsRetryTimerRef.current) clearTimeout(mpegTsRetryTimerRef.current);
       if (hlsRef.current) {
         hlsRef.current.destroy();
         hlsRef.current = null;
       }
+      destroyMpegTs();
     };
   }, [isLikelyHlsSource, src]);
 
@@ -172,7 +323,11 @@ export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressU
     const handleWaiting = () => setIsBuffering(true);
     const handlePlaying = () => { setIsBuffering(false); setPlaybackError(false); };
     const handleProgress = () => updateBuffered();
-    const handleError = () => { setPlaybackError(true); setIsBuffering(false); };
+    const handleError = () => {
+      if (hlsRef.current || mpegTsRef.current) return;
+      setPlaybackError(true);
+      setIsBuffering(false);
+    };
 
     video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
@@ -227,7 +382,11 @@ export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressU
         onProgressUpdate(video.currentTime, video.duration);
       }
     } else {
-      video.play();
+      const playResult = mpegTsRef.current ? mpegTsRef.current.play() : video.play();
+      if (playResult && typeof playResult.catch === 'function') playResult.catch(() => {
+        setPlaybackError(true);
+        setIsBuffering(false);
+      });
     }
     setIsPlaying(!isPlaying);
   };

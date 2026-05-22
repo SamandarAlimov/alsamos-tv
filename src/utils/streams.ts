@@ -133,9 +133,9 @@ export function isTransportStreamUrl(url: string | null | undefined, streamType?
   const inspectableUrl = getInspectableUrl(url);
   try {
     const path = new URL(inspectableUrl).pathname.toLowerCase();
-    return path.endsWith('.ts') || path.includes('/mpegts/') || path.includes('/ts/');
+    return path.endsWith('.ts') || path.endsWith('/ts') || path.includes('/mpegts/') || path.includes('/ts/');
   } catch {
-    return /\.ts(\?|$)/i.test(inspectableUrl);
+    return /\.ts(\?|$)/i.test(inspectableUrl) || /\/ts(\?|$)/i.test(inspectableUrl);
   }
 }
 
@@ -164,7 +164,7 @@ export function getStreamHealth(url: string | null | undefined, streamType?: str
 
   if (type === 'hls' || path.endsWith('.m3u8')) return 'ready';
   if (['.mp4', '.m4v', '.webm', '.ogg', '.mov'].some((ext) => path.endsWith(ext))) return 'ready';
-  if (path.endsWith('.ts') || type === 'mpegts') return 'ready';
+  if (path.endsWith('.ts') || path.endsWith('/ts') || type === 'mpegts' || type === 'ts') return 'ready';
 
   return 'unknown';
 }

@@ -1,7 +1,6 @@
-import { useParams, Link, useNavigate } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Play, Plus, Share2, Download, Star, Clock, Calendar, Users } from 'lucide-react';
+import { Play, Plus, Share2, Download, Star, Clock, Calendar, Users, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Navbar from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
@@ -11,14 +10,21 @@ import { useContent, ContentItem } from '@/hooks/useContent';
 const TitleDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { getById, allContent, loading } = useContent();
 
-  const content = id ? getById(id) : null;
+  const routedContent = (location.state as { content?: ContentItem } | null)?.content;
+  const content = id ? getById(id) || (routedContent?.id === id ? routedContent : null) : null;
   const similarContent = allContent
     .filter(c => c.id !== id && content && c.genres.some(g => content.genres.includes(g)))
     .slice(0, 10);
 
-  if (loading) {
+  const goBack = () => {
+    if (window.history.length > 1) navigate(-1);
+    else navigate(content?.type === 'series' ? '/series' : '/movies');
+  };
+
+  if (loading && !content) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
@@ -41,6 +47,15 @@ const TitleDetail = () => {
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
+      <Button
+        variant="ghost"
+        size="icon"
+        className="fixed left-4 top-20 z-50 rounded-full bg-black/45 text-white backdrop-blur-md hover:bg-white/15 sm:left-6"
+        onClick={goBack}
+        aria-label="Orqaga qaytish"
+      >
+        <ArrowLeft className="w-5 h-5" />
+      </Button>
       
       <div className="relative h-[70vh] md:h-[80vh]">
         <div className="absolute inset-0">
@@ -96,7 +111,7 @@ const TitleDetail = () => {
                 )}
 
                 <div className="flex items-center gap-3 pt-2 flex-wrap">
-                  <Link to={`/watch/${content.id}`}>
+                  <Link to={`/watch/${content.id}`} state={{ content }}>
                     <Button variant="play" size="xl" className="gap-2"><Play className="w-5 h-5 fill-current" />Play Now</Button>
                   </Link>
                   <Button variant="glass" size="xl" className="gap-2"><Plus className="w-5 h-5" />My List</Button>

@@ -203,7 +203,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   }
 
   const referer = getQueryValue(req, 'referer') || getQueryValue(req, 'referrer') || null;
-  const effectiveReferer = referer || `${target.origin}/`;
+  const effectiveReferer = referer || null;
   const userAgent = getQueryValue(req, 'ua') || getQueryValue(req, 'userAgent') || getHeaderValue(req, 'user-agent') || DEFAULT_USER_AGENT;
   const rawMode = getQueryValue(req, 'raw') === '1' || getQueryValue(req, 'rewrite') === '0';
   const directHls = getQueryValue(req, 'direct') === '1';

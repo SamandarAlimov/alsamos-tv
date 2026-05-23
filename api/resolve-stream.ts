@@ -109,7 +109,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   const baseHeaders = new Headers();
   baseHeaders.set('user-agent', userAgent);
   baseHeaders.set('accept', '*/*');
-  const effectiveReferer = referer || `${target.origin}/`;
+  const effectiveReferer = referer || null;
   if (effectiveReferer) {
     baseHeaders.set('referer', effectiveReferer);
     try {

@@ -1,23 +1,26 @@
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Play, Plus, Share2, Download, Star, Clock, Calendar, Users, ArrowLeft } from 'lucide-react';
+import { Play, Plus, Share2, Download, Star, Clock, Calendar, Users, ArrowLeft, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Navbar from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { ContentCarousel } from '@/components/ContentCarousel';
 import { useContent, ContentItem } from '@/hooks/useContent';
+import { useUserLibrary } from '@/contexts/UserLibraryContext';
 
 const TitleDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const { getById, allContent, loading } = useContent();
+  const { isContentSaved, toggleContent } = useUserLibrary();
 
   const routedContent = (location.state as { content?: ContentItem } | null)?.content;
   const content = id ? getById(id) || (routedContent?.id === id ? routedContent : null) : null;
   const similarContent = allContent
     .filter(c => c.id !== id && content && c.genres.some(g => content.genres.includes(g)))
     .slice(0, 10);
+  const isSaved = isContentSaved(content);
 
   const goBack = () => {
     if (window.history.length > 1) navigate(-1);
@@ -114,7 +117,15 @@ const TitleDetail = () => {
                   <Link to={`/watch/${content.id}`} state={{ content }}>
                     <Button variant="play" size="xl" className="gap-2"><Play className="w-5 h-5 fill-current" />Play Now</Button>
                   </Link>
-                  <Button variant="glass" size="xl" className="gap-2"><Plus className="w-5 h-5" />My List</Button>
+                  <Button
+                    variant="glass"
+                    size="xl"
+                    className="gap-2"
+                    onClick={() => toggleContent(content)}
+                  >
+                    {isSaved ? <Check className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
+                    {isSaved ? 'Saved' : 'My List'}
+                  </Button>
                   <Button variant="glass" size="iconLg"><Download className="w-5 h-5" /></Button>
                   <Button variant="glass" size="iconLg"><Share2 className="w-5 h-5" /></Button>
                 </div>

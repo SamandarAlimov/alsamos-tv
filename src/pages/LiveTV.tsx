@@ -4,7 +4,7 @@ import {
   Radio, Users, Play, Pause, Clock, Grid3X3, Tv,
   Minimize2, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
   Volume2, VolumeX, Maximize, PictureInPicture2, LayoutGrid,
-  Signal, Wifi, Share2, Heart, Info, X, Search,
+  Signal, Wifi, Heart, Info, X, Search,
   AlertTriangle, RotateCcw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -30,6 +30,7 @@ import { SourceFilter, ChannelSource } from '@/components/live/SourceFilter';
 import { getSyncedPlaybackPosition, getSyncedPlaybackPositionWithOffset } from '@/utils/playlistSync';
 import { rankedSearch } from '@/utils/search';
 import { getStreamCandidates, getStreamHealth } from '@/utils/streams';
+import { useUserLibrary } from '@/contexts/UserLibraryContext';
 
 const DEFAULT_DVR_WINDOW_SECONDS = 24 * 60 * 60;
 const MIN_DVR_WINDOW_SECONDS = 20;
@@ -157,6 +158,7 @@ const LiveTV = () => {
   const [searchParams] = useSearchParams();
   const requestedChannelId = searchParams.get('channel') || routeChannelId;
   const { channels, loading, getCurrentProgram, getChannelSchedule } = useChannels();
+  const { isChannelSaved, toggleChannel } = useUserLibrary();
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
   const [isPlaying, setIsPlaying] = useState(true);
   const [isMuted, setIsMuted] = useState(true);
@@ -176,6 +178,7 @@ const LiveTV = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const retryButtonRef = useRef<HTMLButtonElement>(null);
   const youtubePlayerRef = useRef<YTPlayer | null>(null);
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
   const showControlsRef = useRef(showControls);
@@ -631,6 +634,7 @@ const LiveTV = () => {
     ? selectedChannel.stream_health || getStreamHealth(selectedChannel.stream_url, selectedChannel.stream_type)
     : 'ready';
   const canPlaySelected = isBrowserPlayableChannel(selectedChannel, failedChannelIds, false);
+  const selectedChannelSaved = selectedChannel ? isChannelSaved(selectedChannel) : false;
   const selectedStreamCandidates = useMemo(
     () => getStreamCandidates(selectedChannel?.stream_url, {
       referer: selectedChannel?.http_referrer,
@@ -642,6 +646,12 @@ const LiveTV = () => {
     }),
     [selectedChannel?.http_referrer, selectedChannel?.http_user_agent, selectedChannel?.source, selectedChannel?.stream_type, selectedChannel?.stream_url]
   );
+
+  useEffect(() => {
+    if (selectedChannel && !canPlaySelected) {
+      retryButtonRef.current?.focus({ preventScroll: true });
+    }
+  }, [canPlaySelected, selectedChannel]);
 
   if (loading) {
     return (
@@ -735,10 +745,12 @@ const LiveTV = () => {
                     </p>
                     <div className="mt-5 flex flex-wrap justify-center gap-2">
                       <Button
+                        ref={retryButtonRef}
                         variant="hero"
                         size="sm"
                         onClick={retrySelectedChannel}
                         className="gap-2"
+                        data-selected="true"
                       >
                         <RotateCcw className="w-4 h-4" />
                         Qayta urinish
@@ -770,9 +782,9 @@ const LiveTV = () => {
               {/* ===== PLAYER CONTROLS ===== */}
               <AnimatePresence>
                 {showControls && (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }} className="absolute inset-0">
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }} className="absolute inset-0 pointer-events-none">
                     {/* Top Bar - Mobile optimized */}
-                    <div className="absolute top-0 left-0 right-0 p-2.5 md:p-4 flex items-center justify-between">
+                    <div className="absolute top-0 left-0 right-0 p-2.5 md:p-4 flex items-center justify-between pointer-events-auto">
                       <div className="flex items-center gap-1.5 md:gap-2">
                         {selectedChannel?.is_live && (
                           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-accent/90 backdrop-blur-sm text-[10px] md:text-xs font-bold uppercase tracking-wider text-accent-foreground">
@@ -793,15 +805,21 @@ const LiveTV = () => {
                       </div>
 
                       <div className="flex items-center gap-0.5 md:gap-1.5">
-                        <Button variant="ghost" size="icon" className="w-8 h-8 md:w-9 md:h-9 text-white hover:bg-white/20 rounded-full" onClick={() => toast.success('Sevimlilarga qo\'shildi')}>
-                          <Heart className="w-4 h-4" />
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className={cn(
+                            "w-8 h-8 md:w-9 md:h-9 text-white hover:bg-white/20 rounded-full",
+                            selectedChannelSaved && "text-primary bg-primary/15"
+                          )}
+                          onClick={() => selectedChannel && toggleChannel(selectedChannel)}
+                          aria-label={selectedChannelSaved ? 'Kanalni playlistdan olish' : 'Kanalni playlistga qo‘shish'}
+                          title={selectedChannelSaved ? 'Playlistdan olish' : 'Playlistga qo‘shish'}
+                        >
+                          <Heart className={cn("w-4 h-4", selectedChannelSaved && "fill-current")} />
                         </Button>
                         <Button variant="ghost" size="icon" className="w-8 h-8 md:w-9 md:h-9 text-white hover:bg-white/20 rounded-full" onClick={() => setShowInfo(!showInfo)}>
                           <Info className="w-4 h-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="w-8 h-8 md:w-9 md:h-9 text-white hover:bg-white/20 rounded-full"
-                          onClick={() => { navigator.share?.({ title: selectedChannel?.name, url: window.location.href }).catch(() => { navigator.clipboard.writeText(window.location.href); toast.success('Link nusxalandi'); }); }}>
-                          <Share2 className="w-4 h-4" />
                         </Button>
                       </div>
                     </div>
@@ -814,7 +832,7 @@ const LiveTV = () => {
                           initial={{ scale: 0.8, opacity: 0 }}
                           animate={{ scale: 1, opacity: 1 }}
                           exit={{ scale: 0.8, opacity: 0 }}
-                          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 md:w-20 md:h-20 rounded-full glass-strong flex items-center justify-center shadow-2xl ring-1 ring-white/10 hover:scale-105 transition-transform"
+                          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 md:w-20 md:h-20 rounded-full glass-strong flex items-center justify-center shadow-2xl ring-1 ring-white/10 hover:scale-105 transition-transform pointer-events-auto"
                           aria-label="Play"
                         >
                           <Play className="w-7 h-7 md:w-9 md:h-9 text-white fill-current ml-1" />
@@ -823,7 +841,7 @@ const LiveTV = () => {
                     </AnimatePresence>
 
                     {/* Bottom Controls - Mobile compact */}
-                    <div className="absolute bottom-0 left-0 right-0 p-2.5 md:p-4 lg:p-6">
+                    <div className="absolute bottom-0 left-0 right-0 p-2.5 md:p-4 lg:p-6 pointer-events-auto">
                       {/* Channel Info - Mobile compact */}
                       <div className="flex items-center gap-2.5 md:gap-4 mb-2 md:mb-4">
                         <div className="w-10 h-10 md:w-14 md:h-14 rounded-xl glass flex items-center justify-center overflow-hidden flex-shrink-0">

@@ -110,7 +110,12 @@ function sendError(res: ApiResponse, message: string, status = 400) {
   res.status(status).end(message);
 }
 
-function copyUpstreamHeaders(upstream: Response, res: ApiResponse, rewriteManifest: boolean) {
+function copyUpstreamHeaders(
+  upstream: Response,
+  res: ApiResponse,
+  rewriteManifest: boolean,
+  contentTypeOverride?: string
+) {
   setHeaders(res, CORS_HEADERS);
   res.setHeader('cache-control', 'no-store');
   res.setHeader('accept-ranges', upstream.headers.get('accept-ranges') || 'bytes');
@@ -126,10 +131,44 @@ function copyUpstreamHeaders(upstream: Response, res: ApiResponse, rewriteManife
     return;
   }
 
-  const contentType = upstream.headers.get('content-type');
+  const contentType = contentTypeOverride || upstream.headers.get('content-type');
   const contentLength = upstream.headers.get('content-length');
   if (contentType) res.setHeader('content-type', contentType);
   if (contentLength && contentLength !== '0') res.setHeader('content-length', contentLength);
+}
+
+function looksLikeHlsManifest(chunk: Uint8Array) {
+  const prefix = new TextDecoder().decode(chunk.slice(0, 256)).trimStart();
+  return prefix.startsWith('#EXTM3U');
+}
+
+function looksLikeMp4(chunk: Uint8Array) {
+  if (chunk.length < 12) return false;
+  const boxType = String.fromCharCode(chunk[4], chunk[5], chunk[6], chunk[7]);
+  return boxType === 'ftyp';
+}
+
+async function readTextFromReader(firstChunk: Uint8Array, reader: ReadableStreamDefaultReader<Uint8Array>) {
+  const decoder = new TextDecoder();
+  let text = decoder.decode(firstChunk, { stream: true });
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    if (value) text += decoder.decode(value, { stream: true });
+  }
+
+  return text + decoder.decode();
+}
+
+async function* streamFromReader(firstChunk: Uint8Array, reader: ReadableStreamDefaultReader<Uint8Array>) {
+  yield firstChunk;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    if (value) yield value;
+  }
 }
 
 export default async function handler(req: ApiRequest, res: ApiResponse) {
@@ -200,24 +239,48 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
 
   const upstreamBase = new URL(upstream.url || target.toString());
   const rewriteManifest = !rawMode && isHlsManifest(upstreamBase, upstream.headers.get('content-type'));
-  copyUpstreamHeaders(upstream, res, rewriteManifest);
-  res.status(upstream.status);
 
   if (req.method === 'HEAD') {
+    copyUpstreamHeaders(upstream, res, rewriteManifest);
+    res.status(upstream.status);
     res.end();
     return;
   }
 
   if (rewriteManifest) {
+    copyUpstreamHeaders(upstream, res, true);
+    res.status(upstream.status);
     const manifest = await upstream.text();
     res.send(rewriteHlsManifest(manifest, upstreamBase, { directHls, referer, userAgent }));
     return;
   }
 
   if (!upstream.body) {
+    copyUpstreamHeaders(upstream, res, false);
+    res.status(upstream.status);
     res.end();
     return;
   }
 
-  Readable.fromWeb(upstream.body as any).pipe(res as any);
+  const reader = upstream.body.getReader();
+  const { value: firstChunk, done } = await reader.read();
+
+  if (done || !firstChunk) {
+    copyUpstreamHeaders(upstream, res, false);
+    res.status(upstream.status);
+    res.end();
+    return;
+  }
+
+  if (!rawMode && looksLikeHlsManifest(firstChunk)) {
+    copyUpstreamHeaders(upstream, res, true);
+    res.status(upstream.status);
+    const manifest = await readTextFromReader(firstChunk, reader);
+    res.send(rewriteHlsManifest(manifest, upstreamBase, { directHls, referer, userAgent }));
+    return;
+  }
+
+  copyUpstreamHeaders(upstream, res, false, looksLikeMp4(firstChunk) ? 'video/mp4' : undefined);
+  res.status(upstream.status);
+  Readable.from(streamFromReader(firstChunk, reader)).pipe(res as any);
 }

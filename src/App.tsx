@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { UserLibraryProvider } from "@/contexts/UserLibraryContext";
 import { MobileBottomNav } from "@/components/MobileBottomNav";
 
 const Index = lazy(() => import("./pages/Index"));
@@ -145,36 +146,38 @@ function TvRemoteNavigation() {
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <TvRemoteNavigation />
-          <Suspense fallback={<PageLoader />}>
-            <Routes>
-              <Route path="/" element={<Index />} />
-              <Route path="/watch/:id" element={<Watch />} />
-              <Route path="/title/:id" element={<TitleDetail />} />
-              <Route path="/search" element={<Search />} />
-              <Route path="/movies" element={<Movies />} />
-              <Route path="/series" element={<Series />} />
-              <Route path="/live" element={<LiveTV />} />
-              <Route path="/live/:id" element={<LiveTV />} />
-              <Route path="/live-studio" element={<LiveStudio />} />
-              <Route path="/tv-guide" element={<TVGuide />} />
-              <Route path="/ai-studio" element={<AIStudio />} />
-              <Route path="/auth" element={<Auth />} />
-              <Route path="/profile" element={<Profile />} />
-              <Route path="/subscription" element={<Subscription />} />
-              <Route path="/shorts" element={<Shorts />} />
-              <Route path="/creator-studio" element={<CreatorStudio />} />
-              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </Suspense>
-          <MobileBottomNav />
-        </BrowserRouter>
-      </TooltipProvider>
+      <UserLibraryProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <TvRemoteNavigation />
+            <Suspense fallback={<PageLoader />}>
+              <Routes>
+                <Route path="/" element={<Index />} />
+                <Route path="/watch/:id" element={<Watch />} />
+                <Route path="/title/:id" element={<TitleDetail />} />
+                <Route path="/search" element={<Search />} />
+                <Route path="/movies" element={<Movies />} />
+                <Route path="/series" element={<Series />} />
+                <Route path="/live" element={<LiveTV />} />
+                <Route path="/live/:id" element={<LiveTV />} />
+                <Route path="/live-studio" element={<LiveStudio />} />
+                <Route path="/tv-guide" element={<TVGuide />} />
+                <Route path="/ai-studio" element={<AIStudio />} />
+                <Route path="/auth" element={<Auth />} />
+                <Route path="/profile" element={<Profile />} />
+                <Route path="/subscription" element={<Subscription />} />
+                <Route path="/shorts" element={<Shorts />} />
+                <Route path="/creator-studio" element={<CreatorStudio />} />
+                {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </Suspense>
+            <MobileBottomNav />
+          </BrowserRouter>
+        </TooltipProvider>
+      </UserLibraryProvider>
     </AuthProvider>
   </QueryClientProvider>
 );

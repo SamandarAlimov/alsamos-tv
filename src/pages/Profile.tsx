@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { 
-  User, Settings, Clock, Download, Heart, 
+  User, Settings, Clock, Download, Heart, Tv,
   Shield, Bell, Globe, Subtitles, LogOut,
   Edit2, Camera, Check, X, Lock, Plus
 } from 'lucide-react';
@@ -15,9 +15,45 @@ import { supabase } from '@/integrations/supabase/client';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 import ContentCard from '@/components/ContentCard';
+import { useUserLibrary } from '@/contexts/UserLibraryContext';
+import type { ContentItem } from '@/hooks/useContent';
+
+function formatDuration(seconds: number | null | undefined) {
+  if (!seconds) return '';
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+}
+
+function mapProfileContent(row: any): ContentItem | null {
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    title: row.title || 'Untitled',
+    description: row.description || '',
+    thumbnail: row.thumbnail_url || row.backdrop_url || '/placeholder.svg',
+    backdrop: row.backdrop_url || row.thumbnail_url || '/placeholder.svg',
+    trailer: row.trailer_url || undefined,
+    year: row.release_year || new Date().getFullYear(),
+    rating: row.rating || 'NR',
+    duration: formatDuration(row.duration_seconds),
+    genres: row.genres || [],
+    type: row.type === 'series' ? 'series' : row.type === 'short' ? 'short' : 'movie',
+    seasons: row.seasons || undefined,
+    episodes: row.episodes || undefined,
+    cast: row.cast_members || undefined,
+    director: row.director || undefined,
+    aiScore: row.ai_score || undefined,
+    isOriginal: row.is_original || false,
+    isTrending: row.is_trending || false,
+    videoUrl: row.video_url || undefined,
+  };
+}
 
 const Profile = () => {
   const { user, profile, subscription, signOut, updateProfile, loading } = useAuth();
+  const { savedContents, savedChannels, toggleChannel } = useUserLibrary();
   const navigate = useNavigate();
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -213,11 +249,53 @@ const Profile = () => {
             </TabsList>
 
             <TabsContent value="watchlist" className="mt-4 md:mt-6">
-              {watchlist.length > 0 ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 md:gap-4">
-                  {watchlist.map((item) => (
-                    <ContentCard key={item.id} content={item.content} />
-                  ))}
+              {watchlist.length > 0 || savedContents.length > 0 || savedChannels.length > 0 ? (
+                <div className="space-y-6">
+                  {(watchlist.length > 0 || savedContents.length > 0) && (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 md:gap-4">
+                      {watchlist.map((item) => {
+                        const content = mapProfileContent(item.content);
+                        return content ? <ContentCard key={item.id} content={content} /> : null;
+                      })}
+                      {savedContents.map((content) => (
+                        <ContentCard key={content.id} content={content} />
+                      ))}
+                    </div>
+                  )}
+                  {savedChannels.length > 0 && (
+                    <div>
+                      <h3 className="font-display font-semibold mb-3 flex items-center gap-2">
+                        <Tv className="w-4 h-4 text-primary" />
+                        Saqlangan kanallar
+                      </h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {savedChannels.map((channel) => (
+                          <div key={channel.id} className="glass-card rounded-xl p-3 flex items-center gap-3">
+                            <button
+                              type="button"
+                              className="flex-1 min-w-0 flex items-center gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-lg"
+                              onClick={() => navigate(`/live/${encodeURIComponent(channel.id)}`)}
+                            >
+                              <div className="w-11 h-11 rounded-xl glass flex items-center justify-center overflow-hidden flex-shrink-0">
+                                {channel.logo_url ? (
+                                  <img src={channel.logo_url} alt={channel.name} className="w-full h-full object-cover" />
+                                ) : (
+                                  <Tv className="w-5 h-5 text-primary" />
+                                )}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="font-semibold text-sm truncate">{channel.name}</p>
+                                <p className="text-xs text-muted-foreground truncate">{channel.category || channel.source || 'Live TV'}</p>
+                              </div>
+                            </button>
+                            <Button variant="ghost" size="icon" className="flex-shrink-0" onClick={() => toggleChannel(channel)}>
+                              <X className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="text-center py-12 md:py-16 px-4">
@@ -233,7 +311,7 @@ const Profile = () => {
               {history.length > 0 ? (
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 md:gap-4">
                   {history.map((item) => (
-                    <ContentCard key={item.id} content={item.content} />
+                    mapProfileContent(item.content) ? <ContentCard key={item.id} content={mapProfileContent(item.content)!} /> : null
                   ))}
                 </div>
               ) : (
@@ -250,7 +328,7 @@ const Profile = () => {
               {downloads.length > 0 ? (
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 md:gap-4">
                   {downloads.map((item) => (
-                    <ContentCard key={item.id} content={item.content} />
+                    mapProfileContent(item.content) ? <ContentCard key={item.id} content={mapProfileContent(item.content)!} /> : null
                   ))}
                 </div>
               ) : (

@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Play, Plus, Info, Star } from 'lucide-react';
+import { Check, Play, Plus, Info, Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ContentItem } from '@/hooks/useContent';
 import { Link, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
+import { useUserLibrary } from '@/contexts/UserLibraryContext';
 
 interface ContentCardProps {
   content: ContentItem;
@@ -16,6 +17,8 @@ export function ContentCard({ content, index = 0, variant = 'default' }: Content
   const [isHovered, setIsHovered] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
   const navigate = useNavigate();
+  const { isContentSaved, toggleContent } = useUserLibrary();
+  const isSaved = isContentSaved(content);
 
   useEffect(() => {
     setImageFailed(false);
@@ -138,8 +141,18 @@ export function ContentCard({ content, index = 0, variant = 'default' }: Content
                   <Play className="w-4 h-4 fill-current" />
                 </Button>
               </Link>
-              <Button variant="glass" size="iconSm" className="rounded-full">
-                <Plus className="w-4 h-4" />
+              <Button
+                variant="glass"
+                size="iconSm"
+                className={cn("rounded-full", isSaved && "bg-primary text-primary-foreground hover:bg-primary/90")}
+                aria-label={isSaved ? 'My Listdan olib tashlash' : 'My Listga qo‘shish'}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  toggleContent(content);
+                }}
+              >
+                {isSaved ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
               </Button>
             </div>
             <Link to={`/title/${content.id}`} state={{ content }}>

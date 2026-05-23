@@ -61,6 +61,18 @@ function isHls(url: URL, contentType: string | null) {
   return type.includes('mpegurl') || url.pathname.toLowerCase().endsWith('.m3u8');
 }
 
+function isMpegTs(url: URL, contentType: string | null) {
+  const type = (contentType || '').split(';')[0].trim().toLowerCase();
+  const path = url.pathname.toLowerCase();
+  return (
+    type.includes('mp2t') ||
+    path.endsWith('.ts') ||
+    path.endsWith('/ts') ||
+    path.includes('/mpegts/') ||
+    path.includes('/ts/')
+  );
+}
+
 export default async function handler(req: ApiRequest, res: ApiResponse) {
   if (req.method === 'OPTIONS') {
     setHeaders(res, CORS_HEADERS);
@@ -94,34 +106,56 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
 
   const referer = getQueryValue(req, 'referer') || getQueryValue(req, 'referrer') || null;
   const userAgent = getQueryValue(req, 'ua') || getQueryValue(req, 'userAgent') || getHeaderValue(req, 'user-agent') || DEFAULT_USER_AGENT;
-  const headers = new Headers();
-  headers.set('user-agent', userAgent);
-  headers.set('accept', '*/*');
-  headers.set('range', 'bytes=0-0');
-  if (referer) headers.set('referer', referer);
+  const baseHeaders = new Headers();
+  baseHeaders.set('user-agent', userAgent);
+  baseHeaders.set('accept', '*/*');
+  const effectiveReferer = referer || `${target.origin}/`;
+  if (effectiveReferer) {
+    baseHeaders.set('referer', effectiveReferer);
+    try {
+      baseHeaders.set('origin', new URL(effectiveReferer).origin);
+    } catch {}
+  }
+
+  const probeSource = async (withRange: boolean) => {
+    const headers = new Headers(baseHeaders);
+    if (withRange) headers.set('range', 'bytes=0-0');
+    return fetch(target.toString(), {
+      method: 'GET',
+      headers,
+      redirect: 'follow',
+      signal: controller.signal,
+    });
+  };
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
 
   let upstream: Response;
   try {
-    upstream = await fetch(target.toString(), {
-      method: 'GET',
-      headers,
-      redirect: 'follow',
-      signal: controller.signal,
-    });
+    upstream = await probeSource(true);
+    if (!upstream.ok && [403, 405, 416].includes(upstream.status)) {
+      upstream.body?.cancel().catch(() => {});
+      upstream = await probeSource(false);
+    }
   } catch {
     clearTimeout(timeout);
-    json(res, 502, { error: 'Stream source unreachable', proxyUrl: getProxyUrl(target.toString(), referer, userAgent) });
+    json(res, 502, { error: 'Stream source unreachable', proxyUrl: getProxyUrl(target.toString(), effectiveReferer, userAgent) });
     return;
   }
   clearTimeout(timeout);
 
   const finalUrl = new URL(upstream.url || target.toString());
   const contentType = upstream.headers.get('content-type');
-  const kind = isHls(finalUrl, contentType) ? 'hls' : isVideoFile(finalUrl, contentType) ? 'video' : 'unknown';
-  const directUrl = finalUrl.protocol === 'https:' && kind === 'video' ? finalUrl.toString() : null;
+  const kind = isHls(finalUrl, contentType)
+    ? 'hls'
+    : isVideoFile(finalUrl, contentType)
+      ? 'video'
+      : isMpegTs(finalUrl, contentType)
+        ? 'mpegts'
+        : 'unknown';
+  const directUrl = upstream.ok && finalUrl.protocol === 'https:' && kind === 'video' ? finalUrl.toString() : null;
+  const proxyTarget = upstream.ok ? finalUrl.toString() : target.toString();
   upstream.body?.cancel().catch(() => {});
 
   json(res, 200, {
@@ -130,7 +164,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     sourceUrl: target.toString(),
     finalUrl: finalUrl.toString(),
     directUrl,
-    proxyUrl: getProxyUrl(finalUrl.toString(), referer, userAgent),
+    proxyUrl: getProxyUrl(proxyTarget, effectiveReferer, userAgent),
     kind,
     contentType,
     contentLength: upstream.headers.get('content-length'),

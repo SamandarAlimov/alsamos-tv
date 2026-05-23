@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Play,
@@ -35,6 +35,7 @@ interface VideoPlayerProps {
   title?: string;
   contentId?: string;
   fallbackSrc?: string;
+  fallbackSrcs?: string[];
   onBack?: () => void;
   onProgressUpdate?: (progress: number, duration: number) => void;
 }
@@ -129,7 +130,7 @@ function loadMpegTs() {
   return mpegTsLoader;
 }
 
-export function VideoPlayer({ src, poster, title, contentId, fallbackSrc, onBack, onProgressUpdate }: VideoPlayerProps) {
+export function VideoPlayer({ src, poster, title, contentId, fallbackSrc, fallbackSrcs = [], onBack, onProgressUpdate }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -154,25 +155,40 @@ export function VideoPlayer({ src, poster, title, contentId, fallbackSrc, onBack
   const mpegTsRetryTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const hlsRecoveryAttemptsRef = useRef(0);
   const mpegTsRecoveryAttemptsRef = useRef(0);
-  const fallbackAttemptedRef = useRef(false);
+  const fallbackCursorRef = useRef(0);
+
+  const fallbackQueue = useMemo(() => {
+    const seen = new Set<string>();
+    const queue: string[] = [];
+    for (const candidate of [fallbackSrc, ...fallbackSrcs]) {
+      if (!candidate || candidate === src || seen.has(candidate)) continue;
+      seen.add(candidate);
+      queue.push(candidate);
+    }
+    return queue;
+  }, [fallbackSrc, fallbackSrcs, src]);
 
   const isLikelyHlsSource = useCallback((value: string) => {
     return isHlsUrl(value);
   }, []);
 
   useEffect(() => {
-    fallbackAttemptedRef.current = false;
+    fallbackCursorRef.current = 0;
     setActiveSrc(src);
   }, [src]);
 
   const tryFallbackSource = useCallback(() => {
-    if (!fallbackSrc || fallbackSrc === activeSrc || fallbackAttemptedRef.current) return false;
-    fallbackAttemptedRef.current = true;
-    setPlaybackError(false);
-    setIsBuffering(true);
-    setActiveSrc(fallbackSrc);
-    return true;
-  }, [activeSrc, fallbackSrc]);
+    while (fallbackCursorRef.current < fallbackQueue.length) {
+      const nextCandidate = fallbackQueue[fallbackCursorRef.current];
+      fallbackCursorRef.current += 1;
+      if (!nextCandidate || nextCandidate === activeSrc) continue;
+      setPlaybackError(false);
+      setIsBuffering(true);
+      setActiveSrc(nextCandidate);
+      return true;
+    }
+    return false;
+  }, [activeSrc, fallbackQueue]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -643,7 +659,27 @@ export function VideoPlayer({ src, poster, title, contentId, fallbackSrc, onBack
             <div className="max-w-md text-center glass-strong rounded-2xl p-6">
               <p className="font-display text-lg font-semibold text-white">Video yuklanmadi</p>
               <p className="text-sm text-white/65 mt-2">Manba vaqtincha ishlamayapti yoki brauzer bu formatni qo'llab-quvvatlamaydi.</p>
-              <Button variant="hero" className="mt-4" onClick={() => window.location.reload()}>
+              <Button
+                variant="hero"
+                className="mt-4"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  if (tryFallbackSource()) return;
+                  const video = videoRef.current;
+                  if (!video) return;
+                  setPlaybackError(false);
+                  setIsBuffering(true);
+                  video.load();
+                  const playResult = mpegTsRef.current ? mpegTsRef.current.play() : video.play();
+                  if (playResult && typeof playResult.catch === 'function') {
+                    playResult.catch(() => {
+                      setPlaybackError(true);
+                      setIsBuffering(false);
+                    });
+                  }
+                }}
+              >
                 Qayta urinish
               </Button>
             </div>

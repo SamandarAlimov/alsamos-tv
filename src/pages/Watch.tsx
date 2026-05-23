@@ -10,6 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import { fallbackContent } from '@/data/fallbackContent';
 import { normalizeSearchText } from '@/utils/search';
 import { type ContentItem, useContent } from '@/hooks/useContent';
+import { getStreamCandidates } from '@/utils/streams';
 
 interface ContentData {
   id: string;
@@ -152,6 +153,7 @@ const Watch = () => {
   const [content, setContent] = useState<ContentData | null>(null);
   const [loading, setLoading] = useState(true);
   const [resolvedVideoSrc, setResolvedVideoSrc] = useState<string | null>(null);
+  const [resolvedVideoFallbacks, setResolvedVideoFallbacks] = useState<string[]>([]);
   const [resolvingVideo, setResolvingVideo] = useState(false);
   const ytRef = useRef<YTPlayer | null>(null);
   const youtubeContainerRef = useRef<HTMLDivElement>(null);
@@ -293,11 +295,23 @@ const Watch = () => {
 
   useEffect(() => {
     setResolvedVideoSrc(null);
+    setResolvedVideoFallbacks([]);
     setResolvingVideo(false);
 
     if (!content?.video_url || getYouTubeSource(content.video_url)) return;
+
+    const baseCandidates = getStreamCandidates(content.video_url, {
+      preferDirectHls: true,
+      proxyOnly: false,
+    }).filter(Boolean) as string[];
+
     const resolveUrl = getStreamResolveUrl(content.video_url);
-    if (!resolveUrl) return;
+    if (!resolveUrl) {
+      const uniqueFallbacks = Array.from(new Set(baseCandidates.filter((candidate) => candidate !== content.video_url)));
+      setResolvedVideoSrc(content.video_url);
+      setResolvedVideoFallbacks(uniqueFallbacks);
+      return;
+    }
 
     let cancelled = false;
     setResolvingVideo(true);
@@ -305,10 +319,22 @@ const Watch = () => {
       .then((response) => response.ok ? response.json() : null)
       .then((data) => {
         if (cancelled || !data) return;
-        setResolvedVideoSrc(data.directUrl || data.proxyUrl || content.video_url);
+        const primary = data.directUrl || data.proxyUrl || content.video_url;
+        const fallbackCandidates = [
+          data.proxyUrl,
+          data.finalUrl,
+          content.video_url,
+          ...baseCandidates,
+        ].filter((candidate): candidate is string => typeof candidate === 'string' && candidate.length > 0);
+        const uniqueFallbacks = Array.from(new Set(fallbackCandidates.filter((candidate) => candidate !== primary)));
+        setResolvedVideoSrc(primary);
+        setResolvedVideoFallbacks(uniqueFallbacks);
       })
       .catch(() => {
-        if (!cancelled) setResolvedVideoSrc(content.video_url);
+        if (cancelled) return;
+        const uniqueFallbacks = Array.from(new Set(baseCandidates.filter((candidate) => candidate !== content.video_url)));
+        setResolvedVideoSrc(content.video_url);
+        setResolvedVideoFallbacks(uniqueFallbacks);
       })
       .finally(() => {
         if (!cancelled) setResolvingVideo(false);
@@ -491,13 +517,16 @@ const Watch = () => {
     resolvedVideoSrc ||
     content.video_url ||
     'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
+  const fallbackSrc = resolvedVideoFallbacks[0];
+  const fallbackSrcs = resolvedVideoFallbacks.slice(1);
 
   return (
     <div className="w-full h-screen bg-black">
       <VideoPlayer
         key={videoSrc}
         src={videoSrc}
-        fallbackSrc={resolvedVideoSrc && content.video_url ? content.video_url : undefined}
+        fallbackSrc={fallbackSrc}
+        fallbackSrcs={fallbackSrcs}
         poster={content.backdrop_url || undefined}
         title={content.title}
         contentId={content.id}

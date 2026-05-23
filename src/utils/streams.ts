@@ -133,9 +133,14 @@ export function isTransportStreamUrl(url: string | null | undefined, streamType?
   const inspectableUrl = getInspectableUrl(url);
   try {
     const path = new URL(inspectableUrl).pathname.toLowerCase();
-    return path.endsWith('.ts') || path.includes('/mpegts/') || path.includes('/ts/');
+    return (
+      path.endsWith('.ts') ||
+      path.endsWith('/ts') ||
+      path.includes('/mpegts/') ||
+      path.includes('/ts/')
+    );
   } catch {
-    return /\.ts(\?|$)/i.test(inspectableUrl);
+    return /\.ts(\?|$)/i.test(inspectableUrl) || /\/ts(\?|$)/i.test(inspectableUrl);
   }
 }
 

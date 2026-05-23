@@ -203,16 +203,17 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   }
 
   const referer = getQueryValue(req, 'referer') || getQueryValue(req, 'referrer') || null;
+  const effectiveReferer = referer || `${target.origin}/`;
   const userAgent = getQueryValue(req, 'ua') || getQueryValue(req, 'userAgent') || getHeaderValue(req, 'user-agent') || DEFAULT_USER_AGENT;
   const rawMode = getQueryValue(req, 'raw') === '1' || getQueryValue(req, 'rewrite') === '0';
   const directHls = getQueryValue(req, 'direct') === '1';
   const upstreamHeaders = new Headers();
   upstreamHeaders.set('user-agent', userAgent);
   upstreamHeaders.set('accept', getHeaderValue(req, 'accept') || '*/*');
-  if (referer) {
-    upstreamHeaders.set('referer', referer);
+  if (effectiveReferer) {
+    upstreamHeaders.set('referer', effectiveReferer);
     try {
-      upstreamHeaders.set('origin', new URL(referer).origin);
+      upstreamHeaders.set('origin', new URL(effectiveReferer).origin);
     } catch {}
   }
 
@@ -251,7 +252,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     copyUpstreamHeaders(upstream, res, true);
     res.status(upstream.status);
     const manifest = await upstream.text();
-    res.send(rewriteHlsManifest(manifest, upstreamBase, { directHls, referer, userAgent }));
+    res.send(rewriteHlsManifest(manifest, upstreamBase, { directHls, referer: effectiveReferer, userAgent }));
     return;
   }
 
@@ -276,7 +277,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     copyUpstreamHeaders(upstream, res, true);
     res.status(upstream.status);
     const manifest = await readTextFromReader(firstChunk, reader);
-    res.send(rewriteHlsManifest(manifest, upstreamBase, { directHls, referer, userAgent }));
+    res.send(rewriteHlsManifest(manifest, upstreamBase, { directHls, referer: effectiveReferer, userAgent }));
     return;
   }
 

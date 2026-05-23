@@ -220,8 +220,9 @@ export function VideoPlayer({ src, poster, title, contentId, fallbackSrc, fallba
     video.removeAttribute('src');
     video.load();
 
+    const isInternalProxy = activeSrc.startsWith('/api/stream?') || activeSrc.includes('/api/stream?');
     const isHls = isLikelyHlsSource(activeSrc);
-    const isMpegTs = isTransportStreamUrl(activeSrc);
+    const isMpegTs = !isInternalProxy && isTransportStreamUrl(activeSrc);
     if (isHls && Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,

@@ -154,7 +154,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
       : isMpegTs(finalUrl, contentType)
         ? 'mpegts'
         : 'unknown';
-  const directUrl = upstream.ok && finalUrl.protocol === 'https:' && kind === 'video' ? finalUrl.toString() : null;
+  const directUrl = finalUrl.protocol === 'https:' && kind === 'video' ? finalUrl.toString() : null;
   const proxyTarget = upstream.ok ? finalUrl.toString() : target.toString();
   upstream.body?.cancel().catch(() => {});
 

@@ -319,7 +319,12 @@ const Watch = () => {
       .then((response) => response.ok ? response.json() : null)
       .then((data) => {
         if (cancelled || !data) return;
-        const primary = data.directUrl || data.proxyUrl || content.video_url;
+        const directCandidate =
+          data.directUrl ||
+          (data.kind === 'video' && typeof data.finalUrl === 'string' && data.finalUrl.startsWith('https://')
+            ? data.finalUrl
+            : null);
+        const primary = directCandidate || data.proxyUrl || content.video_url;
         const fallbackCandidates = [
           data.proxyUrl,
           data.finalUrl,

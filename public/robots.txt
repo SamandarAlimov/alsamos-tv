@@ -12,3 +12,6 @@ Allow: /
 
 User-agent: *
 Allow: /
+
+Host: https://tv.alsamos.com
+Sitemap: https://tv.alsamos.com/sitemap.xml

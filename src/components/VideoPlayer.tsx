@@ -34,6 +34,7 @@ interface VideoPlayerProps {
   poster?: string;
   title?: string;
   contentId?: string;
+  fallbackSrc?: string;
   onBack?: () => void;
   onProgressUpdate?: (progress: number, duration: number) => void;
 }
@@ -128,11 +129,12 @@ function loadMpegTs() {
   return mpegTsLoader;
 }
 
-export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressUpdate }: VideoPlayerProps) {
+export function VideoPlayer({ src, poster, title, contentId, fallbackSrc, onBack, onProgressUpdate }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const mpegTsRef = useRef<MpegTsPlayer | null>(null);
+  const [activeSrc, setActiveSrc] = useState(src);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -152,14 +154,29 @@ export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressU
   const mpegTsRetryTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const hlsRecoveryAttemptsRef = useRef(0);
   const mpegTsRecoveryAttemptsRef = useRef(0);
+  const fallbackAttemptedRef = useRef(false);
 
   const isLikelyHlsSource = useCallback((value: string) => {
     return isHlsUrl(value);
   }, []);
 
   useEffect(() => {
+    fallbackAttemptedRef.current = false;
+    setActiveSrc(src);
+  }, [src]);
+
+  const tryFallbackSource = useCallback(() => {
+    if (!fallbackSrc || fallbackSrc === activeSrc || fallbackAttemptedRef.current) return false;
+    fallbackAttemptedRef.current = true;
+    setPlaybackError(false);
+    setIsBuffering(true);
+    setActiveSrc(fallbackSrc);
+    return true;
+  }, [activeSrc, fallbackSrc]);
+
+  useEffect(() => {
     const video = videoRef.current;
-    if (!video || !src) return;
+    if (!video || !activeSrc) return;
 
     let cancelled = false;
 
@@ -187,8 +204,8 @@ export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressU
     video.removeAttribute('src');
     video.load();
 
-    const isHls = isLikelyHlsSource(src);
-    const isMpegTs = isTransportStreamUrl(src);
+    const isHls = isLikelyHlsSource(activeSrc);
+    const isMpegTs = isTransportStreamUrl(activeSrc);
     if (isHls && Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
@@ -201,7 +218,7 @@ export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressU
         fragLoadingMaxRetry: 8,
       });
       hlsRef.current = hls;
-      hls.loadSource(src);
+      hls.loadSource(activeSrc);
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, () => setIsBuffering(false));
       hls.on(Hls.Events.ERROR, (_event, data) => {
@@ -222,6 +239,7 @@ export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressU
           return;
         }
 
+        if (tryFallbackSource()) return;
         setPlaybackError(true);
         setIsBuffering(false);
       });
@@ -230,7 +248,7 @@ export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressU
         if (cancelled) return;
 
         if (!mpegts?.isSupported()) {
-          video.src = src;
+          video.src = activeSrc;
           setIsBuffering(false);
           return;
         }
@@ -238,7 +256,7 @@ export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressU
         const player = mpegts.createPlayer({
           type: 'mpegts',
           isLive: false,
-          url: src,
+          url: activeSrc,
           cors: true,
           withCredentials: false,
           hasAudio: true,
@@ -272,6 +290,7 @@ export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressU
                   if (playResult && typeof playResult.catch === 'function') playResult.catch(() => {});
                 }
               } catch {
+                if (tryFallbackSource()) return;
                 setPlaybackError(true);
                 setIsBuffering(false);
               }
@@ -279,12 +298,13 @@ export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressU
             return;
           }
 
+          if (tryFallbackSource()) return;
           setPlaybackError(true);
           setIsBuffering(false);
         });
       });
     } else {
-      video.src = src;
+      video.src = activeSrc;
       setIsBuffering(false);
     }
 
@@ -298,7 +318,7 @@ export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressU
       }
       destroyMpegTs();
     };
-  }, [isLikelyHlsSource, src]);
+  }, [activeSrc, isLikelyHlsSource, tryFallbackSource]);
 
   // Update buffered progress
   const updateBuffered = useCallback(() => {
@@ -325,6 +345,7 @@ export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressU
     const handleProgress = () => updateBuffered();
     const handleError = () => {
       if (hlsRef.current || mpegTsRef.current) return;
+      if (tryFallbackSource()) return;
       setPlaybackError(true);
       setIsBuffering(false);
     };
@@ -344,7 +365,7 @@ export function VideoPlayer({ src, poster, title, contentId, onBack, onProgressU
       video.removeEventListener('progress', handleProgress);
       video.removeEventListener('error', handleError);
     };
-  }, [updateBuffered]);
+  }, [tryFallbackSource, updateBuffered]);
 
   // Progress tracking - save every 10 seconds
   useEffect(() => {

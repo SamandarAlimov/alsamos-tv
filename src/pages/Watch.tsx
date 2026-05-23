@@ -118,6 +118,30 @@ function normalizeWatchContent(content: ContentData): ContentData {
   return content;
 }
 
+function getStreamResolveUrl(value: string | null | undefined) {
+  if (!value || typeof window === 'undefined') return null;
+
+  try {
+    const parsed = new URL(value, window.location.origin);
+    const target = parsed.pathname === '/api/stream'
+      ? parsed.searchParams.get('url')
+      : parsed.toString();
+
+    if (!target) return null;
+    const targetUrl = new URL(target);
+    if (!['http:', 'https:'].includes(targetUrl.protocol)) return null;
+
+    const params = new URLSearchParams({ url: targetUrl.toString() });
+    const referer = parsed.searchParams.get('referer') || parsed.searchParams.get('referrer');
+    const userAgent = parsed.searchParams.get('ua') || parsed.searchParams.get('userAgent');
+    if (referer) params.set('referer', referer);
+    if (userAgent) params.set('ua', userAgent);
+    return `/api/resolve-stream?${params.toString()}`;
+  } catch {
+    return null;
+  }
+}
+
 const Watch = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -127,6 +151,8 @@ const Watch = () => {
   const { allContent, loading: catalogLoading, shamsMoviesLoading } = useContent();
   const [content, setContent] = useState<ContentData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [resolvedVideoSrc, setResolvedVideoSrc] = useState<string | null>(null);
+  const [resolvingVideo, setResolvingVideo] = useState(false);
   const ytRef = useRef<YTPlayer | null>(null);
   const youtubeContainerRef = useRef<HTMLDivElement>(null);
 
@@ -265,6 +291,34 @@ const Watch = () => {
     requestAnimationFrame(() => youtubeContainerRef.current?.focus({ preventScroll: true }));
   }, [content]);
 
+  useEffect(() => {
+    setResolvedVideoSrc(null);
+    setResolvingVideo(false);
+
+    if (!content?.video_url || getYouTubeSource(content.video_url)) return;
+    const resolveUrl = getStreamResolveUrl(content.video_url);
+    if (!resolveUrl) return;
+
+    let cancelled = false;
+    setResolvingVideo(true);
+    fetch(resolveUrl, { cache: 'no-store' })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => {
+        if (cancelled || !data) return;
+        setResolvedVideoSrc(data.directUrl || data.proxyUrl || content.video_url);
+      })
+      .catch(() => {
+        if (!cancelled) setResolvedVideoSrc(content.video_url);
+      })
+      .finally(() => {
+        if (!cancelled) setResolvingVideo(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [content?.id, content?.video_url]);
+
   if (loading) {
     return (
       <div className="w-full h-screen bg-black flex items-center justify-center">
@@ -276,6 +330,7 @@ const Watch = () => {
   if (!content) return null;
 
   const ytSource = getYouTubeSource(content.video_url);
+  const shouldWaitForResolvedVideo = !ytSource && !!getStreamResolveUrl(content.video_url) && resolvingVideo && !resolvedVideoSrc;
   const goBack = () => {
     if (window.history.length > 1) navigate(-1);
     else navigate('/');
@@ -420,15 +475,29 @@ const Watch = () => {
     );
   }
 
+  if (shouldWaitForResolvedVideo) {
+    return (
+      <div className="w-full h-screen bg-black flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="mt-4 text-sm text-white/70">Video manbasi tayyorlanmoqda...</p>
+        </div>
+      </div>
+    );
+  }
+
   // Direct video URL (mp4/HLS) path
   const videoSrc =
+    resolvedVideoSrc ||
     content.video_url ||
     'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
 
   return (
     <div className="w-full h-screen bg-black">
       <VideoPlayer
+        key={videoSrc}
         src={videoSrc}
+        fallbackSrc={resolvedVideoSrc && content.video_url ? content.video_url : undefined}
         poster={content.backdrop_url || undefined}
         title={content.title}
         contentId={content.id}

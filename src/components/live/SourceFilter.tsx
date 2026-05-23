@@ -1,13 +1,12 @@
-import { Globe, Radio, Tv2, Sparkles, Star } from 'lucide-react';
+import { Globe, Radio, Tv2, Sparkles } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 
-export type ChannelSource = 'all' | 'alsamos' | 'uz' | 'shams' | 'iptv-org';
+export type ChannelSource = 'all' | 'alsamos' | 'shams' | 'iptv-org';
 
 const SOURCES: { id: ChannelSource; label: string; icon: React.ElementType }[] = [
   { id: 'all', label: 'Barchasi', icon: Globe },
   { id: 'alsamos', label: 'Alsamos', icon: Sparkles },
-  { id: 'uz', label: "O'zbek", icon: Star },
   { id: 'shams', label: 'Shams TV', icon: Tv2 },
   { id: 'iptv-org', label: 'IPTV-Org', icon: Radio },
 ];

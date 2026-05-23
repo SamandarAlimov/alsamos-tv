@@ -524,6 +524,21 @@ export function VideoPlayer({ src, poster, title, contentId, fallbackSrc, fallba
     else window.location.href = '/';
   };
 
+  const shouldIgnoreSurfaceToggle = useCallback((target: EventTarget | null) => {
+    if (!(target instanceof HTMLElement)) return false;
+    return !!target.closest(
+      'button, a[href], input, textarea, select, [role="slider"], [role="menu"], [role="menuitem"], [data-no-surface-toggle="true"]'
+    );
+  }, []);
+
+  const handleSurfaceToggleClick = useCallback((event: React.MouseEvent<HTMLElement>) => {
+    if (event.defaultPrevented) return;
+    if (event.button !== 0) return;
+    if (event.detail > 1) return;
+    if (shouldIgnoreSurfaceToggle(event.target)) return;
+    togglePlay();
+  }, [shouldIgnoreSurfaceToggle]);
+
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement;
     if (target.closest('[role="menu"], [role="menuitem"]')) return;
@@ -695,13 +710,17 @@ export function VideoPlayer({ src, poster, title, contentId, fallbackSrc, fallba
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.8 }}
-            className="absolute inset-0 flex items-center justify-center"
+            className="absolute inset-0 flex items-center justify-center cursor-pointer"
+            onClick={handleSurfaceToggleClick}
           >
             <Button
               variant="play"
               size="iconLg"
               className="w-20 h-20 rounded-full"
-              onClick={togglePlay}
+              onClick={(event) => {
+                event.stopPropagation();
+                togglePlay();
+              }}
             >
               <Play className="w-8 h-8 fill-current ml-1" />
             </Button>
@@ -718,6 +737,7 @@ export function VideoPlayer({ src, poster, title, contentId, fallbackSrc, fallba
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
             className="absolute inset-0"
+            onClick={handleSurfaceToggleClick}
           >
             {/* Top Gradient */}
             <div className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-black/80 to-transparent" />

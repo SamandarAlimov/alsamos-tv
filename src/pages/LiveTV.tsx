@@ -43,6 +43,110 @@ const TV_FOCUS_SELECTOR = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(',');
 
+const LIVE_CATEGORY_ORDER: string[] = [
+  'All',
+  'Uzbekistan',
+  'Movies',
+  'Music',
+  'News',
+  'Kids',
+  'Sports',
+  'Documentary',
+  'Entertainment',
+  'General',
+  'Undefined',
+  'Family',
+  'Entertainment;Music',
+  'Кино Канал',
+  'Мултики на (UZB) языке',
+  'Фильмы на (UZB) языке',
+  'Грузия',
+  'Германия',
+  'Russia',
+  'RUSSIA (тест)',
+  'Турция',
+  'Болгария',
+  'Детский',
+  'USA',
+  'Казахстан',
+  'Education',
+  'Россия Региональные',
+  'Италия',
+  'Молдовия',
+  'Afghanistan',
+  'USBA',
+  'Испания',
+  'Туркменистан',
+  'Армения',
+  'Сербия',
+  'Азербайжан',
+  'Индия',
+  'Венгрия',
+  'BCU+BOX',
+  'СПОРТ',
+  'Хорватия',
+  'Франция',
+  'Чехия',
+  'Великобритания',
+  'Латвия',
+  'Словакия',
+  'Таджикистан',
+  'Science',
+  'Shopping',
+  'Lifestyle',
+  'Auto',
+  'Business',
+  'Comedy',
+  'Series',
+  'Culture',
+  'Cooking',
+  'Outdoor',
+  'Religious',
+  'Animation',
+  'Public',
+  'Classic',
+  'Legislative',
+  'Weather',
+  'Travel',
+  'Relax',
+];
+
+function normalizeCategoryLookup(value: string | null | undefined) {
+  return (value || '')
+    .normalize('NFKC')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLocaleLowerCase();
+}
+
+const CATEGORY_ALIASES: Record<string, string> = {
+  "o'zbekistan": 'Uzbekistan',
+  'ozbekiston': 'Uzbekistan',
+  'uzbekiston': 'Uzbekistan',
+  'uzbek': 'Uzbekistan',
+  'uzb': 'Uzbekistan',
+  'movie': 'Movies',
+  'sport': 'Sports',
+  'documentaries': 'Documentary',
+  'entertainment/music': 'Entertainment;Music',
+  'entertainment, music': 'Entertainment;Music',
+  'entertainment + music': 'Entertainment;Music',
+  'russia (test)': 'RUSSIA (тест)',
+  'киноканал': 'Кино Канал',
+  'детский канал': 'Детский',
+};
+
+const CATEGORY_CANONICAL_MAP = new Map<string, string>([
+  ...LIVE_CATEGORY_ORDER.map((label) => [normalizeCategoryLookup(label), label] as const),
+  ...Object.entries(CATEGORY_ALIASES).map(([key, label]) => [normalizeCategoryLookup(key), label] as const),
+]);
+
+function getCategoryForFilter(value: string | null | undefined) {
+  if (!value || !value.trim()) return 'Undefined';
+  const cleaned = value.normalize('NFKC').replace(/\s+/g, ' ').trim();
+  return CATEGORY_CANONICAL_MAP.get(normalizeCategoryLookup(cleaned)) || cleaned;
+}
+
 function isTextEntryElement(element: EventTarget | null) {
   if (!(element instanceof HTMLElement)) return false;
   return element.tagName === 'INPUT' || element.tagName === 'TEXTAREA' || element.isContentEditable;
@@ -59,6 +163,13 @@ function isVisibleFocusable(element: HTMLElement) {
 
 function getTvFocusableElements(root: HTMLElement) {
   return Array.from(root.querySelectorAll<HTMLElement>(TV_FOCUS_SELECTOR)).filter(isVisibleFocusable);
+}
+
+function shouldIgnorePlayerSurfaceToggle(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  return !!target.closest(
+    'button, a[href], input, textarea, select, [role="button"], [role="slider"], [role="menu"], [role="menuitem"], [data-no-surface-toggle="true"]'
+  );
 }
 
 function getCenter(rect: DOMRect) {
@@ -192,23 +303,40 @@ const LiveTV = () => {
   const [dvrMaxRewindSeconds, setDvrMaxRewindSeconds] = useState(DEFAULT_DVR_WINDOW_SECONDS);
   const [hasDvrWindow, setHasDvrWindow] = useState(true);
 
+  const getChannelSource = useCallback((channel: Channel) => (
+    channel.source ?? 'alsamos'
+  ), []);
+
   const sourceCounts = useMemo(() => ({
     all: channels.length,
-    alsamos: channels.filter(c => (c.source ?? 'alsamos') === 'alsamos').length,
-    uz: channels.filter(c => c.source === 'uz').length,
-    shams: channels.filter(c => c.source === 'shams').length,
-    'iptv-org': channels.filter(c => c.source === 'iptv-org').length,
-  }), [channels]);
+    alsamos: channels.filter(c => getChannelSource(c) === 'alsamos').length,
+    shams: channels.filter(c => getChannelSource(c) === 'shams').length,
+    'iptv-org': channels.filter(c => {
+      const source = getChannelSource(c);
+      return source === 'iptv-org' || source === 'uz';
+    }).length,
+  }), [channels, getChannelSource]);
 
   const sourceFiltered = useMemo(() => (
     selectedSource === 'all'
       ? channels
-      : channels.filter(c => (c.source ?? 'alsamos') === selectedSource)
-  ), [channels, selectedSource]);
+      : channels.filter(c => {
+          const source = getChannelSource(c);
+          if (selectedSource === 'iptv-org') return source === 'iptv-org' || source === 'uz';
+          return source === selectedSource;
+        })
+  ), [channels, getChannelSource, selectedSource]);
 
-  const categories = useMemo(() => (
-    ['All', ...Array.from(new Set(sourceFiltered.map(c => c.category).filter(Boolean) as string[]))]
-  ), [sourceFiltered]);
+  const categories = useMemo(() => LIVE_CATEGORY_ORDER, []);
+
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = { All: sourceFiltered.length };
+    for (const channel of sourceFiltered) {
+      const category = getCategoryForFilter(channel.category);
+      counts[category] = (counts[category] || 0) + 1;
+    }
+    return counts;
+  }, [sourceFiltered]);
 
   const activeSearchQuery = deferredSearchQuery.trim();
 
@@ -216,7 +344,7 @@ const LiveTV = () => {
     const base = activeSearchQuery
       ? sourceFiltered
       : sourceFiltered.filter(channel =>
-          selectedCategory === 'All' || channel.category === selectedCategory
+          selectedCategory === 'All' || getCategoryForFilter(channel.category) === selectedCategory
         );
 
     return activeSearchQuery
@@ -502,11 +630,24 @@ const LiveTV = () => {
     if (showMiniPlayer && miniPlayerChannel?.id === channel.id) { setShowMiniPlayer(false); setMiniPlayerChannel(null); }
   }, [miniPlayerChannel?.id, selectChannelForPlayback, showMiniPlayer]);
 
-  const togglePlay = () => {
-    if (videoRef.current) { isPlaying ? videoRef.current.pause() : videoRef.current.play(); }
-    if (youtubePlayerRef.current) { isPlaying ? youtubePlayerRef.current.pauseVideo() : youtubePlayerRef.current.playVideo(); }
-    setIsPlaying(!isPlaying);
-  };
+  const togglePlay = useCallback(() => {
+    const video = videoRef.current;
+    const yt = youtubePlayerRef.current;
+    const ytState = yt?.getPlayerState?.();
+    const shouldPause = video ? !video.paused && !video.ended : ytState === 1 || isPlayingRef.current;
+
+    if (shouldPause) {
+      video?.pause();
+      yt?.pauseVideo();
+      setIsPlaying(false);
+      return;
+    }
+
+    const playResult = video?.play();
+    if (playResult && typeof playResult.catch === 'function') playResult.catch(() => {});
+    yt?.playVideo();
+    setIsPlaying(true);
+  }, []);
 
   const isPlaylistDvrChannel = selectedChannel?.stream_type === 'youtube_playlist' && !!selectedChannel.youtube_video_id;
   const dvrTimelineMax = isPlaylistDvrChannel ? DEFAULT_DVR_WINDOW_SECONDS : Math.max(1, dvrMaxRewindSeconds);
@@ -647,6 +788,16 @@ const LiveTV = () => {
     [selectedChannel?.http_referrer, selectedChannel?.http_user_agent, selectedChannel?.source, selectedChannel?.stream_type, selectedChannel?.stream_url]
   );
 
+  const handlePlayerSurfaceClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented) return;
+    if (event.button !== 0) return;
+    if (event.detail > 1) return;
+    if (!selectedChannel || !canPlaySelected) return;
+    if (shouldIgnorePlayerSurfaceToggle(event.target)) return;
+    togglePlay();
+    revealControls(3500, true);
+  }, [canPlaySelected, revealControls, selectedChannel, togglePlay]);
+
   useEffect(() => {
     if (selectedChannel && !canPlaySelected) {
       retryButtonRef.current?.focus({ preventScroll: true });
@@ -696,6 +847,7 @@ const LiveTV = () => {
               onMouseMove={handleMouseMove}
               onMouseLeave={handlePlayerMouseLeave}
               onTouchStart={handlePlayerTouchStart}
+              onClick={handlePlayerSurfaceClick}
             >
               {/* Video Source */}
               {canPlaySelected && (selectedChannel?.youtube_video_id || selectedChannel?.stream_type === 'youtube_playlist') ? (
@@ -919,7 +1071,9 @@ const LiveTV = () => {
               <AnimatePresence>
                 {showInfo && (
                   <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}
-                    className="absolute top-0 right-0 bottom-0 w-full md:w-96 glass-strong p-4 md:p-6 overflow-y-auto z-30">
+                    className="absolute top-0 right-0 bottom-0 w-full md:w-96 glass-strong p-4 md:p-6 overflow-y-auto z-30"
+                    data-no-surface-toggle="true"
+                  >
                     <div className="flex items-center justify-between mb-4 md:mb-6">
                       <h3 className="font-display font-semibold text-base md:text-lg text-white">Kanal ma'lumotlari</h3>
                       <Button variant="ghost" size="icon" className="w-8 h-8 md:w-9 md:h-9 text-white hover:bg-white/20 rounded-full" onClick={() => setShowInfo(false)}><X className="w-5 h-5" /></Button>
@@ -1072,7 +1226,12 @@ const LiveTV = () => {
                         />
                       </div>
                       <SourceFilter selected={selectedSource} onSelect={setSelectedSource} counts={sourceCounts} />
-                      <CategoryFilter categories={categories} selected={selectedCategory} onSelect={setSelectedCategory} />
+                      <CategoryFilter
+                        categories={categories}
+                        selected={selectedCategory}
+                        onSelect={setSelectedCategory}
+                        counts={categoryCounts}
+                      />
                     </div>
 
                     {/* Virtualized Channel List */}
@@ -1201,7 +1360,12 @@ const LiveTV = () => {
               </div>
               <SourceFilter selected={selectedSource} onSelect={setSelectedSource} counts={sourceCounts} />
               <div className="overflow-x-auto scrollbar-hide">
-                <CategoryFilter categories={categories} selected={selectedCategory} onSelect={setSelectedCategory} />
+                <CategoryFilter
+                  categories={categories}
+                  selected={selectedCategory}
+                  onSelect={setSelectedCategory}
+                  counts={categoryCounts}
+                />
               </div>
             </div>
 
